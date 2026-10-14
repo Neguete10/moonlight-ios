@@ -7,6 +7,8 @@
 //
 
 #import "StreamManager.h"
+#import "AdaptiveBitrate.h"
+#import "MicrophoneCapture.h"
 #import "CryptoManager.h"
 #import "HttpManager.h"
 #import "Utils.h"
@@ -25,6 +27,34 @@
     UIView* _renderView;
     id<ConnectionCallbacks> _callbacks;
     Connection* _connection;
+    AdaptiveBitrateWorker* _adaptiveBitrate;
+}
+
+static BOOL twilightHostLooksLocal(NSString *host) {
+    if ([Utils isActiveNetworkVPN]) {
+        return NO;
+    }
+    NSString *address = [Utils addressPortStringToAddress:host];
+    if (address == nil) {
+        return NO;
+    }
+    NSString *lower = address.lowercaseString;
+    if ([lower isEqualToString:@"localhost"] || [lower hasPrefix:@"127."] ||
+        [lower hasPrefix:@"10."] || [lower hasPrefix:@"192.168."] ||
+        [lower hasPrefix:@"169.254."] || [lower hasPrefix:@"fe80"] ||
+        [lower hasPrefix:@"fc"] || [lower hasPrefix:@"fd"]) {
+        return YES;
+    }
+    if ([lower hasPrefix:@"172."]) {
+        NSArray *parts = [lower componentsSeparatedByString:@"."];
+        if (parts.count >= 2) {
+            int second = [parts[1] intValue];
+            if (second >= 16 && second <= 31) {
+                return YES;
+            }
+        }
+    }
+    return NO;
 }
 
 - (id) initWithConfig:(StreamConfiguration*)config renderView:(UIView*)view connectionCallbacks:(id<ConnectionCallbacks>)callbacks {
@@ -108,7 +138,33 @@
 
 - (void) stopStream
 {
+    [self stopAdaptiveBitrate];
+    [MicrophoneCapture stop];
     [_connection terminate];
+}
+
+- (void) startAdaptiveBitrateIfEnabled:(BOOL)enabled {
+    [self stopAdaptiveBitrate];
+    TwilightResetPoorConnection();
+    if (!enabled) {
+        return;
+    }
+    int channels = CHANNEL_COUNT_FROM_AUDIO_CONFIGURATION(_config.audioConfiguration);
+    if (channels < 1) {
+        channels = 2;
+    }
+    _adaptiveBitrate = [[AdaptiveBitrateWorker alloc] initWithHost:_config.host
+                                                         httpsPort:_config.httpsPort
+                                                        serverCert:_config.serverCert
+                                                 requestedWireKbps:_config.bitRate
+                                                 audioChannelCount:channels
+                                                               lan:twilightHostLooksLocal(_config.host)];
+    [_adaptiveBitrate start];
+}
+
+- (void) stopAdaptiveBitrate {
+    [_adaptiveBitrate requestStop];
+    _adaptiveBitrate = nil;
 }
 
 - (BOOL) launchApp:(HttpManager*)hMan receiveSessionUrl:(NSString**)sessionUrl {
@@ -188,7 +244,12 @@
     if (interval > 0) {
         measuredMbps = (stats.receivedVideoBytes * 8.0) / interval / 1000000.0;
     }
-    return [NSString stringWithFormat:@"Video stream: %dx%d %.2f FPS (Codec: %@)\n%.1f Mbps requested, %.1f Mbps estimated encoder target, %.1f Mbps measured\nFrames dropped by your network connection: %.2f%%\nAverage network latency: %@%@",
+    int adaptiveKbps = TwilightAdaptiveOverlayKbps();
+    NSString *adaptive = @"";
+    if (adaptiveKbps > 0) {
+        adaptive = [NSString stringWithFormat:@" %.1f Mbps adaptive", adaptiveKbps / 1000.0];
+    }
+    return [NSString stringWithFormat:@"Video stream: %dx%d %.2f FPS (Codec: %@)\n%.1f Mbps requested, %.1f Mbps estimated encoder target, %.1f Mbps measured%@\nFrames dropped by your network connection: %.2f%%\nAverage network latency: %@%@",
             _config.width,
             _config.height,
             stats.totalFrames / interval,
@@ -196,6 +257,7 @@
             requestedMbps,
             estimatedTargetMbps,
             measuredMbps,
+            adaptive,
             stats.networkDroppedFrames / interval,
             latencyString,
             hostProcessingString];

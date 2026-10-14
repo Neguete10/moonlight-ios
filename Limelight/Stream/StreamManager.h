@@ -14,6 +14,8 @@
 - (id) initWithConfig:(StreamConfiguration*)config renderView:(UIView*)view connectionCallbacks:(id<ConnectionCallbacks>)callback;
 
 - (void) stopStream;
+- (void) startAdaptiveBitrateIfEnabled:(BOOL)enabled;
+- (void) stopAdaptiveBitrate;
 
 - (NSString*) getStatsOverlayText;
 
