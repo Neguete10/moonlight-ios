@@ -1,24 +1,19 @@
-# Moonlight iOS/tvOS
+# Twilight
 
-[![CI](https://github.com/moonlight-stream/moonlight-ios/actions/workflows/ci.yml/badge.svg)](https://github.com/moonlight-stream/moonlight-ios/actions/workflows/ci.yml)
+[![CI](https://github.com/Neguete10/moonlight-ios/actions/workflows/ci.yml/badge.svg)](https://github.com/Neguete10/moonlight-ios/actions/workflows/ci.yml)
 
-[Moonlight for iOS/tvOS](https://moonlight-stream.org) is an open source client for [Sunshine](https://github.com/LizardByte/Sunshine) and NVIDIA GameStream. Moonlight for iOS/tvOS allows you to stream your full collection of games and apps from your powerful desktop computer to your iOS device or Apple TV.
+Twilight streams a game from a computer you own to iPhone, iPad, and Apple TV. It is a fork of [Moonlight for iOS and tvOS](https://github.com/moonlight-stream/moonlight-ios). Moonlight has not endorsed it.
 
-Moonlight also has a [PC client](https://github.com/moonlight-stream/moonlight-qt) and [Android client](https://github.com/moonlight-stream/moonlight-android).
+The Mac client is [Twilight](https://github.com/Neguete10/twilight). Hosts are [Sunshine](https://github.com/LizardByte/Sunshine) and NVIDIA GameStream.
 
-Check out [the Moonlight wiki](https://github.com/moonlight-stream/moonlight-docs/wiki) for more detailed project information, setup guide, or troubleshooting steps.
+The name on the device is Twilight. The Xcode targets are still Moonlight (iPhone and iPad) and Moonlight TV (Apple TV). Both use the bundle id `io.github.neguete10.twilight.ios`.
 
-[![Moonlight for iOS and tvOS](https://moonlight-stream.org/images/App_Store_Badge_135x40.svg)](https://apps.apple.com/us/app/moonlight-game-streaming/id1000551566)
+Preferences for this app live in `Twilight.sqlite` on iOS and iPadOS, and in `Twilight_tvOS.bin` on tvOS.
 
 ## Building
-* Install Xcode from the [App Store page](https://apps.apple.com/us/app/xcode/id497799835)
-* Run `git clone --recursive https://github.com/moonlight-stream/moonlight-ios.git`
-  *  If you've already clone the repo without `--recursive`, run `git submodule update --init --recursive`
-* Open Moonlight.xcodeproj in Xcode
-* To run on a real device, you will need to locally modify the signing options:
-    * Click on "Moonlight" at the top of the left sidebar
-    * Click on the "Signing & Capabilities" tab
-    * Under "Targets", select "Moonlight" (for iOS/iPadOS) or "Moonlight TV" (for tvOS)
-    * In the "Team" dropdown, select your name. If your name doesn't appear, you may need to sign into Xcode with your Apple account.
-    * Change the "Bundle Identifier" to something different. You can add your name or some random letters to make it unique.
-    * Now you can select your Apple device in the top bar as a target and click the Play button to run.
+
+* Install Xcode from the [App Store](https://apps.apple.com/us/app/xcode/id497799835)
+* Clone with submodules: `git clone --recursive https://github.com/Neguete10/moonlight-ios.git`
+  * If the clone was not recursive, run `git submodule update --init --recursive`
+* Open `Moonlight.xcodeproj` in Xcode
+* The signing team is unset. A simulator build does not need one. To run on a device, select the Moonlight or Moonlight TV target, open Signing & Capabilities, and choose your Apple Developer team.

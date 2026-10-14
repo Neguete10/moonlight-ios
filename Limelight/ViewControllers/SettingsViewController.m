@@ -9,6 +9,7 @@
 #import "SettingsViewController.h"
 #import "TemporarySettings.h"
 #import "DataManager.h"
+#import "StreamConfiguration.h"
 
 #import <VideoToolbox/VideoToolbox.h>
 #import <AVFoundation/AVFoundation.h>
@@ -48,6 +49,16 @@ static const int bitrateTable[] = {
     100000,
     120000,
     150000,
+    200000,
+    250000,
+    300000,
+    400000,
+    500000,
+    600000,
+    700000,
+    800000,
+    900000,
+    TWILIGHT_BITRATE_MAX_KBPS,
 };
 
 const int RESOLUTION_TABLE_SIZE = 7;
@@ -137,8 +148,15 @@ BOOL isCustomResolution(CGSize res) {
     DataManager* dataMan = [[DataManager alloc] init];
     TemporarySettings* currentSettings = [dataMan getSettings];
     
-    // Ensure we pick a bitrate that falls exactly onto a slider notch
-    _bitrate = bitrateTable[[self getSliderValueForBitrate:[currentSettings.bitrate intValue]]];
+    // Notches stop at 1 Gbps. A stored value above that stays as stored
+    // until the slider moves. Nothing in this table is Unlimited.
+    NSInteger storedBitrate = [currentSettings.bitrate intValue];
+    if (storedBitrate > TWILIGHT_BITRATE_MAX_KBPS) {
+        _bitrate = storedBitrate;
+    }
+    else {
+        _bitrate = bitrateTable[[self getSliderValueForBitrate:storedBitrate]];
+    }
 
     // Get the size of the screen with and without safe area insets
     UIWindow *window = UIApplication.sharedApplication.windows.firstObject;
@@ -326,7 +344,10 @@ BOOL isCustomResolution(CGSize res) {
     }
 
     defaultBitrate = round(resolutionFactor * frameRateFactor) * 1000;
-    _bitrate = MIN(defaultBitrate, 100000);
+    if (defaultBitrate > TWILIGHT_BITRATE_MAX_KBPS) {
+        defaultBitrate = TWILIGHT_BITRATE_MAX_KBPS;
+    }
+    _bitrate = bitrateTable[[self getSliderValueForBitrate:defaultBitrate]];
     [self.bitrateSlider setValue:[self getSliderValueForBitrate:_bitrate] animated:YES];
     
     [self updateBitrateText];

@@ -17,9 +17,12 @@
 static NSOperationQueue* mainQueue;
 
 #if TARGET_OS_TV
-static NSString* DB_NAME = @"Moonlight_tvOS.bin";
+// Twilight's own store. The bundle id already isolates this container from
+// Moonlight. The filename is not Moonlight's, and it is not the Mac app's
+// QSettings domain.
+static NSString* DB_NAME = @"Twilight_tvOS.bin";
 #else
-static NSString* DB_NAME = @"Limelight_iOS.sqlite";
+static NSString* DB_NAME = @"Twilight.sqlite";
 #endif
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
