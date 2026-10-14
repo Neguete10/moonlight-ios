@@ -43,3 +43,59 @@ jobs:
 
       - name: Build Release
         run: xcodebuild -project Moonlight.xcodeproj -scheme "${{ matrix.scheme }}" -configuration Release -sdk ${{ matrix.sdk }} clean build
+
+  visionos:
+    name: Build (visionOS simulator, non-blocking)
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Download visionOS platform
+        id: platform
+        continue-on-error: true
+        run: xcodebuild -downloadPlatform visionOS
+
+      - name: Build Moonlight for the visionOS Simulator, or explain why it cannot
+        run: |
+          set +e
+          if [ "${{ steps.platform.outcome }}" != "success" ]; then
+            echo "visionOS platform download did not succeed."
+            echo "The Moonlight scheme stays an iPhone and iPad app. This job does not affect those builds."
+            exit 0
+          fi
+          dest_log="$(mktemp)"
+          xcodebuild -project Moonlight.xcodeproj -scheme Moonlight -showdestinations >"$dest_log" 2>&1
+          python3 - "$dest_log" << 'PY'
+          import sys
+          text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+          available = text.split("Available destinations", 1)[-1].split("Ineligible destinations", 1)[0]
+          sys.exit(0 if "visionOS Simulator" in available else 1)
+          PY
+          has_destination=$?
+          if [ "$has_destination" -ne 0 ]; then
+            echo "The Moonlight scheme has no visionOS Simulator destination, so it was not built as a native visionOS app."
+            echo "TARGETED_DEVICE_FAMILY is 1,2 and SDKROOT is iphoneos. On Apple Vision Pro this binary runs as the existing iPad app."
+            echo "A native visionOS build needs its own target before this destination exists."
+            echo "Destinations from xcodebuild:"
+            cat "$dest_log"
+            exit 0
+          fi
+          build_log="$(mktemp)"
+          xcodebuild -project Moonlight.xcodeproj -scheme Moonlight -configuration Debug -destination "generic/platform=visionOS Simulator" build >"$build_log" 2>&1
+          build_status=$?
+          cat "$build_log"
+          if [ "$build_status" -eq 0 ]; then
+            exit 0
+          fi
+          if grep -E -q "Unable to find a destination|supported destinations|not compatible with visionOS|supported platforms" "$build_log"; then
+            echo "The Moonlight scheme cannot target the visionOS Simulator without a project change."
+            echo "It remains the iPhone and iPad app, which runs on Vision Pro as Designed for iPad."
+            exit 0
+          fi
+          echo "The visionOS Simulator build of the Moonlight scheme failed. See the log above for what a native build would break."
+          echo "This job does not fail the iPhone or Apple TV builds."
+          exit "$build_status"
