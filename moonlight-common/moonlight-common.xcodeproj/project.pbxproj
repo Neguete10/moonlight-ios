@@ -341,6 +341,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = FB1A67F721324EE300507771 /* Build configuration list for PBXNativeTarget "moonlight-common-tv" */;
 			buildPhases = (
+				A7E1B241EF96000100AB1041 /* Apply raw control packet */,
 				FB1A67EB21324EE300507771 /* Sources */,
 				FB1A67EC21324EE300507771 /* Frameworks */,
 				FB1A67ED21324EE300507771 /* CopyFiles */,
@@ -361,6 +362,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = FB290E3219B37A4E004C83CF /* Build configuration list for PBXNativeTarget "moonlight-common" */;
 			buildPhases = (
+				A7E1B240EF96000100AB1040 /* Apply raw control packet */,
 				FB290E2A19B37A4E004C83CF /* Sources */,
 				FB290E2B19B37A4E004C83CF /* Frameworks */,
 			);
@@ -413,6 +415,39 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A7E1B240EF96000100AB1040 /* Apply raw control packet */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Apply raw control packet";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/usr/bin/python3 \"${SRCROOT}/apply-raw-control-packet.py\"\n";
+		};
+		A7E1B241EF96000100AB1041 /* Apply raw control packet */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Apply raw control packet";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/usr/bin/python3 \"${SRCROOT}/apply-raw-control-packet.py\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		FB1A67EB21324EE300507771 /* Sources */ = {

@@ -17,6 +17,28 @@
 @implementation SettingsViewController {
     NSInteger _bitrate;
     NSInteger _lastSelectedResolutionIndex;
+    UISegmentedControl *_adaptiveBitrateSelector;
+    UISegmentedControl *_microphoneSelector;
+}
+
+- (UISegmentedControl *)addYesNoControlTitled:(NSString *)title below:(UIView *)anchor {
+    CGFloat y = CGRectGetMaxY(anchor.frame) + 20;
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(22, y, 420, 21)];
+    label.text = title;
+    label.font = [UIFont boldSystemFontOfSize:17];
+    label.textColor = [UIColor colorWithRed:0.939 green:0.963 blue:1 alpha:1];
+    [self.scrollView addSubview:label];
+
+    UISegmentedControl *control = [[UISegmentedControl alloc] initWithItems:@[@"No", @"Yes"]];
+    control.frame = CGRectMake(anchor.frame.origin.x, y + 27, anchor.frame.size.width, 28);
+    control.selectedSegmentIndex = 0;
+    UIColor *tint = [UIColor colorWithRed:0.672 green:0.617 blue:0.999 alpha:1];
+    control.tintColor = tint;
+    if (@available(iOS 13.0, tvOS 13.0, *)) {
+        control.selectedSegmentTintColor = tint;
+    }
+    [self.scrollView addSubview:control];
+    return control;
 }
 
 @dynamic overrideUserInterfaceStyle;
@@ -261,6 +283,14 @@ BOOL isCustomResolution(CGSize res) {
     [self.touchModeSelector setSelectedSegmentIndex:currentSettings.absoluteTouchMode ? 1 : 0];
     [self.touchModeSelector addTarget:self action:@selector(touchModeChanged) forControlEvents:UIControlEventValueChanged];
     [self.statsOverlaySelector setSelectedSegmentIndex:currentSettings.statsOverlay ? 1 : 0];
+    if (self.statsOverlaySelector != nil) {
+        _adaptiveBitrateSelector = [self addYesNoControlTitled:@"Adaptive Bitrate" below:self.statsOverlaySelector];
+        [_adaptiveBitrateSelector setSelectedSegmentIndex:currentSettings.enableAdaptiveBitrate ? 1 : 0];
+#if !TARGET_OS_TV
+        _microphoneSelector = [self addYesNoControlTitled:@"Microphone Passthrough" below:_adaptiveBitrateSelector];
+        [_microphoneSelector setSelectedSegmentIndex:currentSettings.enableMicrophone ? 1 : 0];
+#endif
+    }
     [self.btMouseSelector setSelectedSegmentIndex:currentSettings.btMouseSupport ? 1 : 0];
     [self.optimizeSettingsSelector setSelectedSegmentIndex:currentSettings.optimizeGames ? 1 : 0];
     [self.framePacingSelector setSelectedSegmentIndex:currentSettings.useFramePacing ? 1 : 0];
@@ -559,6 +589,8 @@ BOOL isCustomResolution(CGSize res) {
     BOOL absoluteTouchMode = [self.touchModeSelector selectedSegmentIndex] == 1;
     BOOL statsOverlay = [self.statsOverlaySelector selectedSegmentIndex] == 1;
     BOOL enableHdr = [self.hdrSelector selectedSegmentIndex] == 1;
+    BOOL enableAdaptiveBitrate = [_adaptiveBitrateSelector selectedSegmentIndex] == 1;
+    BOOL enableMicrophone = [_microphoneSelector selectedSegmentIndex] == 1;
     [dataMan saveSettingsWithBitrate:_bitrate
                            framerate:framerate
                               height:height
@@ -574,7 +606,9 @@ BOOL isCustomResolution(CGSize res) {
                            enableHdr:enableHdr
                       btMouseSupport:btMouseSupport
                    absoluteTouchMode:absoluteTouchMode
-                        statsOverlay:statsOverlay];
+                        statsOverlay:statsOverlay
+               enableAdaptiveBitrate:enableAdaptiveBitrate
+                   enableMicrophone:enableMicrophone];
 }
 
 - (void)didReceiveMemoryWarning {

@@ -45,6 +45,8 @@
     self.swapABXYButtons = [[NSUserDefaults standardUserDefaults] boolForKey:@"swapABXYButtons"];
     self.btMouseSupport = [[NSUserDefaults standardUserDefaults] boolForKey:@"btMouseSupport"];
     self.statsOverlay = [[NSUserDefaults standardUserDefaults] boolForKey:@"statsOverlay"];
+    self.enableAdaptiveBitrate = [[NSUserDefaults standardUserDefaults] boolForKey:@"enableAdaptiveBitrate"];
+    self.enableMicrophone = NO;
     
     NSInteger _screenSize = [[NSUserDefaults standardUserDefaults] integerForKey:@"streamResolution"];
     switch (_screenSize) {
@@ -85,6 +87,8 @@
     self.btMouseSupport = settings.btMouseSupport;
     self.absoluteTouchMode = settings.absoluteTouchMode;
     self.statsOverlay = settings.statsOverlay;
+    self.enableAdaptiveBitrate = settings.enableAdaptiveBitrate;
+    self.enableMicrophone = settings.enableMicrophone;
 #endif
     self.uniqueId = settings.uniqueId;
     

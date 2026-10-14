@@ -67,7 +67,9 @@
                        enableHdr:(BOOL)enableHdr
                   btMouseSupport:(BOOL)btMouseSupport
                absoluteTouchMode:(BOOL)absoluteTouchMode
-                    statsOverlay:(BOOL)statsOverlay {
+                    statsOverlay:(BOOL)statsOverlay
+           enableAdaptiveBitrate:(BOOL)enableAdaptiveBitrate
+               enableMicrophone:(BOOL)enableMicrophone {
     
     [_managedObjectContext performBlockAndWait:^{
         Settings* settingsToSave = [self retrieveSettings];
@@ -87,6 +89,8 @@
         settingsToSave.btMouseSupport = btMouseSupport;
         settingsToSave.absoluteTouchMode = absoluteTouchMode;
         settingsToSave.statsOverlay = statsOverlay;
+        settingsToSave.enableAdaptiveBitrate = enableAdaptiveBitrate;
+        settingsToSave.enableMicrophone = enableMicrophone;
         
         [self saveData];
     }];

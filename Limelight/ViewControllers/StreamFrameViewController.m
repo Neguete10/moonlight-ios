@@ -12,6 +12,8 @@
 #import "StreamManager.h"
 #import "ControllerSupport.h"
 #import "DataManager.h"
+#import "AdaptiveBitrate.h"
+#import "MicrophoneCapture.h"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -46,6 +48,8 @@
     StreamView *_streamView;
     UIScrollView *_scrollView;
     BOOL _userIsInteracting;
+    BOOL _streamFinished;
+    NSLock *_featureLock;
     CGSize _keyboardSize;
     
 #if !TARGET_OS_TV
@@ -84,6 +88,7 @@
     [UIApplication sharedApplication].idleTimerDisabled = YES;
     
     _settings = [[[DataManager alloc] init] getSettings];
+    _featureLock = [[NSLock alloc] init];
     
     _stageLabel = [[UILabel alloc] init];
     [_stageLabel setUserInteractionEnabled:NO];
@@ -218,6 +223,11 @@
 - (void)willMoveToParentViewController:(UIViewController *)parent {
     // Only cleanup when we're being destroyed
     if (parent == nil) {
+        [_featureLock lock];
+        _streamFinished = YES;
+        [_featureLock unlock];
+        [MicrophoneCapture stop];
+        [_streamMan stopAdaptiveBitrate];
         [_controllerSupport cleanup];
         [UIApplication sharedApplication].idleTimerDisabled = NO;
         [_streamMan stopStream];
@@ -386,11 +396,20 @@
                                                                      userInfo:nil
                                                                       repeats:YES];
         }
+        [self->_featureLock lock];
+        if (!self->_streamFinished) {
+            [self->_streamMan startAdaptiveBitrateIfEnabled:self->_settings.enableAdaptiveBitrate];
+            [MicrophoneCapture startIfEnabled:self->_settings.enableMicrophone];
+        }
+        [self->_featureLock unlock];
     });
 }
 
 - (void)connectionTerminated:(int)errorCode {
     Log(LOG_I, @"Connection terminated: %d", errorCode);
+    [_featureLock lock];
+    _streamFinished = YES;
+    [_featureLock unlock];
     
     unsigned int portFlags = LiGetPortFlagsFromTerminationErrorCode(errorCode);
     unsigned int portTestResults = LiTestClientConnectivity(CONN_TEST_SERVER, 443, portFlags);
@@ -398,6 +417,7 @@
     dispatch_async(dispatch_get_main_queue(), ^{
         // Allow the display to go to sleep now
         [UIApplication sharedApplication].idleTimerDisabled = NO;
+        [self->_controllerSupport clearAdaptiveTriggers];
         
         NSString* title;
         NSString* message;
@@ -486,12 +506,16 @@
 
 - (void) stageFailed:(const char*)stageName withError:(int)errorCode portTestFlags:(int)portTestFlags {
     Log(LOG_I, @"Stage %s failed: %d", stageName, errorCode);
+    [_featureLock lock];
+    _streamFinished = YES;
+    [_featureLock unlock];
     
     unsigned int portTestResults = LiTestClientConnectivity(CONN_TEST_SERVER, 443, portTestFlags);
 
     dispatch_async(dispatch_get_main_queue(), ^{
         // Allow the display to go to sleep now
         [UIApplication sharedApplication].idleTimerDisabled = NO;
+        [self->_controllerSupport clearAdaptiveTriggers];
         
         NSString* message = [NSString stringWithFormat:@"%s failed with error %d", stageName, errorCode];
         if (portTestFlags != 0) {
@@ -558,8 +582,18 @@
     [_controllerSupport setControllerLed:controllerNumber r:r g:g b:b];
 }
 
+- (void) setAdaptiveTriggers:(uint16_t)controllerNumber eventFlags:(uint8_t)eventFlags typeLeft:(uint8_t)typeLeft typeRight:(uint8_t)typeRight left:(uint8_t *)left right:(uint8_t *)right {
+    [_controllerSupport setAdaptiveTriggers:controllerNumber eventFlags:eventFlags typeLeft:typeLeft typeRight:typeRight left:left right:right];
+}
+
 - (void)connectionStatusUpdate:(int)status {
     Log(LOG_W, @"Connection status update: %d", status);
+    if (status == CONN_STATUS_POOR) {
+        TwilightSetPoorConnection(YES);
+    }
+    else if (status == CONN_STATUS_OKAY) {
+        TwilightSetPoorConnection(NO);
+    }
 
     // The stats overlay takes precedence over these warnings
     if (_statsUpdateTimer != nil) {

@@ -34,6 +34,8 @@
 @property (nonatomic) BOOL btMouseSupport;
 @property (nonatomic) BOOL absoluteTouchMode;
 @property (nonatomic) BOOL statsOverlay;
+@property (nonatomic) BOOL enableAdaptiveBitrate;
+@property (nonatomic) BOOL enableMicrophone;
 
 - (id) initFromSettings:(Settings*)settings;
 

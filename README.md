@@ -10,6 +10,8 @@ The name on the device is Twilight. The Xcode targets are still Moonlight (iPhon
 
 Preferences for this app live in `Twilight.sqlite` on iOS and iPadOS, and in `Twilight_tvOS.bin` on tvOS.
 
+Adaptive bitrate and microphone passthrough are off until turned on in settings. Adaptive bitrate changes the rate only when the host's capability list contains `runtime_bitrate`. Microphone passthrough is an iPhone and iPad setting.
+
 ## Building
 
 * Install Xcode from the [App Store](https://apps.apple.com/us/app/xcode/id497799835)
