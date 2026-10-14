@@ -179,11 +179,23 @@
     }
     
     float interval = stats.endTime - stats.startTime;
-    return [NSString stringWithFormat:@"Video stream: %dx%d %.2f FPS (Codec: %@)\nFrames dropped by your network connection: %.2f%%\nAverage network latency: %@%@",
+    // Requested is what this stream asked for. The estimated encoder target
+    // is 80% of that request (the FEC budget). Measured is received video
+    // bytes over this stats window.
+    double requestedMbps = _config.bitRate / 1000.0;
+    double estimatedTargetMbps = requestedMbps * 0.80;
+    double measuredMbps = 0;
+    if (interval > 0) {
+        measuredMbps = (stats.receivedVideoBytes * 8.0) / interval / 1000000.0;
+    }
+    return [NSString stringWithFormat:@"Video stream: %dx%d %.2f FPS (Codec: %@)\n%.1f Mbps requested, %.1f Mbps estimated encoder target, %.1f Mbps measured\nFrames dropped by your network connection: %.2f%%\nAverage network latency: %@%@",
             _config.width,
             _config.height,
             stats.totalFrames / interval,
             [_connection getActiveCodecName],
+            requestedMbps,
+            estimatedTargetMbps,
+            measuredMbps,
             stats.networkDroppedFrames / interval,
             latencyString,
             hostProcessingString];

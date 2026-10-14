@@ -6,6 +6,12 @@
 //  Copyright (c) 2014 Moonlight Stream. All rights reserved.
 //
 
+// The settings controls accept 0.5 Mb/s through 1 Gbps. There is no Unlimited
+// choice. A stored value above 1 Gbps is left alone until the user changes
+// it. The value copied into a stream is capped here.
+#define TWILIGHT_BITRATE_MAX_KBPS 1000000
+#define TWILIGHT_BITRATE_SEND_CAP_KBPS 1500000
+
 @interface StreamConfiguration : NSObject
 
 @property NSString* host;
