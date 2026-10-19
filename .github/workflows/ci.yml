@@ -256,7 +256,17 @@ jobs:
           fetch-depth: 0
 
       - name: Download iOS platform
-        run: xcodebuild -downloadPlatform iOS
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if xcodebuild -downloadPlatform iOS; then
+              exit 0
+            fi
+            echo "iOS platform download attempt ${attempt} failed"
+            sleep $((attempt * 20))
+          done
+          echo "iOS platform download failed after 3 attempts"
+          exit 1
 
       - name: Capture before and after screenshots
         run: |
