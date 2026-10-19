@@ -14,6 +14,7 @@
 #import "DataManager.h"
 #import "AdaptiveBitrate.h"
 #import "MicrophoneCapture.h"
+#import "HttpManager.h"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -49,6 +50,8 @@
     UIScrollView *_scrollView;
     BOOL _userIsInteracting;
     BOOL _streamFinished;
+    BOOL _hostQuitSent;
+    BOOL _endMenuPresented;
     NSLock *_featureLock;
     CGSize _keyboardSize;
     
@@ -67,14 +70,17 @@
 }
 
 #if TARGET_OS_TV
-- (void)controllerPauseButtonPressed:(id)sender { }
+- (void)controllerPauseButtonPressed:(id)sender {
+    Log(LOG_I, @"Menu pressed -- stream end choices");
+    [self presentEndStreamChoices];
+}
 - (void)controllerPauseButtonDoublePressed:(id)sender {
     Log(LOG_I, @"Menu double-pressed -- backing out of stream");
-    [self returnToMainFrame];
+    [self endStreamFromUserQuitHost:NO];
 }
 - (void)controllerPlayPauseButtonPressed:(id)sender {
     Log(LOG_I, @"Play/Pause button pressed -- backing out of stream");
-    [self returnToMainFrame];
+    [self endStreamFromUserQuitHost:NO];
 }
 #endif
 
@@ -134,21 +140,29 @@
     [self.view addGestureRecognizer:_playPauseTapGestureRecognizer];
 
 #else
-    _exitSwipeRecognizer = [[UIScreenEdgePanGestureRecognizer alloc] initWithTarget:self action:@selector(edgeSwiped)];
+    _exitSwipeRecognizer = [[UIScreenEdgePanGestureRecognizer alloc] initWithTarget:self action:@selector(edgeSwiped:)];
     _exitSwipeRecognizer.edges = UIRectEdgeLeft;
     _exitSwipeRecognizer.delaysTouchesBegan = NO;
     _exitSwipeRecognizer.delaysTouchesEnded = NO;
     
     [self.view addGestureRecognizer:_exitSwipeRecognizer];
+
+    // One recognizer can only be attached to one view. The stream view sits
+    // above this controller's view, so the hold lives there. It begins only
+    // at the left edge, which is where the swipe-to-disconnect gesture lives.
+    UILongPressGestureRecognizer *edgeHold = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(edgeHeld:)];
+    edgeHold.minimumPressDuration = 0.6;
+    edgeHold.delegate = (id<UIGestureRecognizerDelegate>)self;
+    [_streamView addGestureRecognizer:edgeHold];
 #endif
     
     _tipLabel = [[UILabel alloc] init];
     [_tipLabel setUserInteractionEnabled:NO];
     
 #if TARGET_OS_TV
-    [_tipLabel setText:@"Tip: Tap the Play/Pause button on the Apple TV Remote to disconnect from your PC"];
+    [_tipLabel setText:@"Tip: Play/Pause disconnects. Menu can also quit the app on the host"];
 #else
-    [_tipLabel setText:@"Tip: Swipe from the left edge to disconnect from your PC"];
+    [_tipLabel setText:@"Tip: Swipe from the left edge to disconnect. Hold the left edge to quit the app on the host"];
 #endif
     
     [_tipLabel sizeToFit];
@@ -162,20 +176,33 @@
     NSOperationQueue* opQueue = [[NSOperationQueue alloc] init];
     [opQueue addOperation:_streamMan];
     
+#if TARGET_OS_TV
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(applicationWillResignActive:)
                                                  name:UIApplicationWillResignActiveNotification
                                                object:nil];
-    
     [[NSNotificationCenter defaultCenter] addObserver: self
                                              selector: @selector(applicationDidBecomeActive:)
                                                  name: UIApplicationDidBecomeActiveNotification
                                                object: nil];
-    
     [[NSNotificationCenter defaultCenter] addObserver: self
                                              selector: @selector(applicationDidEnterBackground:)
                                                  name: UIApplicationDidEnterBackgroundNotification
                                                object: nil];
+#else
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(applicationWillResignActive:)
+                                                 name:UISceneWillDeactivateNotification
+                                               object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver: self
+                                             selector: @selector(applicationDidBecomeActive:)
+                                                 name: UISceneDidActivateNotification
+                                               object: nil];
+    [[NSNotificationCenter defaultCenter] addObserver: self
+                                             selector: @selector(applicationDidEnterBackground:)
+                                                 name: UISceneDidEnterBackgroundNotification
+                                               object: nil];
+#endif
 
 #if 0
     // FIXME: This doesn't work reliably on iPad for some reason. Showing and hiding the keyboard
@@ -371,10 +398,85 @@
     [self returnToMainFrame];
 }
 
-- (void)edgeSwiped {
+#if !TARGET_OS_TV
+- (void)edgeSwiped:(UIScreenEdgePanGestureRecognizer *)recognizer {
+    if (recognizer.state != UIGestureRecognizerStateBegan || _endMenuPresented) {
+        return;
+    }
     Log(LOG_I, @"User swiped to end stream");
-    
+    [self endStreamFromUserQuitHost:NO];
+}
+#endif
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
+    if ([gestureRecognizer isKindOfClass:[UILongPressGestureRecognizer class]]) {
+        CGPoint point = [gestureRecognizer locationInView:self.view];
+        return point.x <= 48.0;
+    }
+    return YES;
+}
+
+- (void)edgeHeld:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state != UIGestureRecognizerStateBegan) {
+        return;
+    }
+    [self presentEndStreamChoices];
+}
+
+- (void)presentEndStreamChoices {
+    if (_endMenuPresented || _streamFinished) {
+        return;
+    }
+    _endMenuPresented = YES;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"End Stream"
+                                                                   message:@"Quitting the app on the host drops unsaved progress there."
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+    [alert addAction:[UIAlertAction actionWithTitle:@"End Stream" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        self->_endMenuPresented = NO;
+        [self endStreamFromUserQuitHost:NO];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"End Stream and Quit App" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        self->_endMenuPresented = NO;
+        [self endStreamFromUserQuitHost:YES];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
+        self->_endMenuPresented = NO;
+    }]];
+    alert.popoverPresentationController.sourceView = self.view;
+    alert.popoverPresentationController.sourceRect = CGRectMake(0, CGRectGetMidY(self.view.bounds), 1, 1);
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)endStreamFromUserQuitHost:(BOOL)forceQuit {
+    // Host-initiated termination and backgrounding call returnToMainFrame
+    // directly, so they never send cancel. A slow host must not block the pop.
+    if (!_streamFinished && (forceQuit || _settings.quitAppAfter) && !_hostQuitSent) {
+        _hostQuitSent = YES;
+        [self sendQuitAppToHost];
+    }
     [self returnToMainFrame];
+}
+
+- (void)sendQuitAppToHost {
+    NSString *host = self.streamConfig.host;
+    unsigned short httpsPort = self.streamConfig.httpsPort;
+    NSData *cert = self.streamConfig.serverCert;
+    if (host.length == 0) {
+        Log(LOG_W, @"Not quitting the host app: the stream has no host address");
+        return;
+    }
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        HttpManager *manager = [[HttpManager alloc] initWithAddress:host httpsPort:httpsPort serverCert:cert];
+        NSURLRequest *urlRequest = [manager newQuitAppRequest];
+        if (urlRequest == nil) {
+            Log(LOG_W, @"Quit app request was not built");
+            return;
+        }
+        HttpResponse *response = [[HttpResponse alloc] init];
+        HttpRequest *request = [HttpRequest requestForResponse:response withUrlRequest:urlRequest];
+        [manager executeRequestSynchronously:request];
+        Log(LOG_I, @"Quit app on host finished with status %ld", (long)response.statusCode);
+    });
 }
 
 - (void) connectionStarted {
@@ -684,7 +786,7 @@
 - (void) streamExitRequested {
     Log(LOG_I, @"Gamepad combo requested stream exit");
     
-    [self returnToMainFrame];
+    [self endStreamFromUserQuitHost:NO];
 }
 
 - (void)userInteractionBegan {

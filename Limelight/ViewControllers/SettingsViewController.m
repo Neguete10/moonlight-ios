@@ -7,9 +7,11 @@
 //
 
 #import "SettingsViewController.h"
+#import "AboutViewController.h"
 #import "TemporarySettings.h"
 #import "DataManager.h"
 #import "StreamConfiguration.h"
+#import "Utils.h"
 
 #import <VideoToolbox/VideoToolbox.h>
 #import <AVFoundation/AVFoundation.h>
@@ -19,9 +21,14 @@
     NSInteger _lastSelectedResolutionIndex;
     UISegmentedControl *_adaptiveBitrateSelector;
     UISegmentedControl *_microphoneSelector;
+    UISegmentedControl *_quitAppAfterSelector;
 }
 
 - (UISegmentedControl *)addYesNoControlTitled:(NSString *)title below:(UIView *)anchor {
+    return [self addYesNoControlTitled:title subtitle:nil below:anchor];
+}
+
+- (UISegmentedControl *)addYesNoControlTitled:(NSString *)title subtitle:(NSString *)subtitle below:(UIView *)anchor {
     CGFloat y = CGRectGetMaxY(anchor.frame) + 20;
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(22, y, 420, 21)];
     label.text = title;
@@ -29,8 +36,19 @@
     label.textColor = [UIColor colorWithRed:0.939 green:0.963 blue:1 alpha:1];
     [self.scrollView addSubview:label];
 
+    CGFloat controlY = y + 27;
+    if (subtitle.length > 0) {
+        UILabel *detail = [[UILabel alloc] initWithFrame:CGRectMake(22, y + 22, 420, 34)];
+        detail.text = subtitle;
+        detail.font = [UIFont systemFontOfSize:13];
+        detail.textColor = [UIColor colorWithRed:0.75 green:0.78 blue:0.85 alpha:1];
+        detail.numberOfLines = 2;
+        [self.scrollView addSubview:detail];
+        controlY = y + 58;
+    }
+
     UISegmentedControl *control = [[UISegmentedControl alloc] initWithItems:@[@"No", @"Yes"]];
-    control.frame = CGRectMake(anchor.frame.origin.x, y + 27, anchor.frame.size.width, 28);
+    control.frame = CGRectMake(anchor.frame.origin.x, controlY, anchor.frame.size.width, 28);
     control.selectedSegmentIndex = 0;
     UIColor *tint = [UIColor colorWithRed:0.672 green:0.617 blue:0.999 alpha:1];
     control.tintColor = tint;
@@ -114,7 +132,8 @@ CGSize resolutionTable[RESOLUTION_TABLE_SIZE];
         // indicators. Ignore any views we don't recognize.
         if (![view isKindOfClass:[UILabel class]] &&
             ![view isKindOfClass:[UISegmentedControl class]] &&
-            ![view isKindOfClass:[UISlider class]]) {
+            ![view isKindOfClass:[UISlider class]] &&
+            ![view isKindOfClass:[UIButton class]]) {
             continue;
         }
         
@@ -181,11 +200,16 @@ BOOL isCustomResolution(CGSize res) {
     }
 
     // Get the size of the screen with and without safe area insets
-    UIWindow *window = UIApplication.sharedApplication.windows.firstObject;
-    CGFloat screenScale = window.screen.scale;
-    CGFloat safeAreaWidth = (window.frame.size.width - window.safeAreaInsets.left - window.safeAreaInsets.right) * screenScale;
-    CGFloat fullScreenWidth = window.frame.size.width * screenScale;
-    CGFloat fullScreenHeight = window.frame.size.height * screenScale;
+    UIWindow *window = [AppDelegate currentWindow];
+    if (window == nil) {
+        window = self.view.window;
+    }
+    CGRect windowFrame = window != nil ? window.frame : UIScreen.mainScreen.bounds;
+    UIEdgeInsets safeInsets = window != nil ? window.safeAreaInsets : UIEdgeInsetsZero;
+    CGFloat screenScale = window != nil ? window.screen.scale : UIScreen.mainScreen.scale;
+    CGFloat safeAreaWidth = (windowFrame.size.width - safeInsets.left - safeInsets.right) * screenScale;
+    CGFloat fullScreenWidth = windowFrame.size.width * screenScale;
+    CGFloat fullScreenHeight = windowFrame.size.height * screenScale;
     
     self.resolutionDisplayView.layer.cornerRadius = 10;
     self.resolutionDisplayView.clipsToBounds = YES;
@@ -239,39 +263,22 @@ BOOL isCustomResolution(CGSize res) {
         [self.framerateSelector removeSegmentAtIndex:2 animated:NO];
     }
 
-    // Disable codec selector segments for unsupported codecs
-#if defined(__IPHONE_16_0) || defined(__TVOS_16_0)
-    if (!VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1))
-#endif
-    {
-        [self.codecSelector removeSegmentAtIndex:2 animated:NO];
+    // Hide codecs this device cannot decode. Titles, not indexes: removing
+    // AV1 must not make the old AV1 slot select HEVC or Auto.
+    if (![Utils av1HardwareDecodeSupported]) {
+        [self removeCodecSegmentTitled:@"AV1"];
     }
     if (!VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC)) {
-        [self.codecSelector removeSegmentAtIndex:1 animated:NO];
+        [self removeCodecSegmentTitled:@"HEVC"];
 
         // Only enable the 4K option for "recent" devices. We'll judge that by whether
         // they support HEVC decoding (A9 or later).
         [self.resolutionSelector setEnabled:NO forSegmentAtIndex:3];
     }
-    switch (currentSettings.preferredCodec) {
-        case CODEC_PREF_AUTO:
-            [self.codecSelector setSelectedSegmentIndex:self.codecSelector.numberOfSegments - 1];
-            break;
-            
-        case CODEC_PREF_AV1:
-            [self.codecSelector setSelectedSegmentIndex:2];
-            break;
-            
-        case CODEC_PREF_HEVC:
-            [self.codecSelector setSelectedSegmentIndex:1];
-            break;
-            
-        case CODEC_PREF_H264:
-            [self.codecSelector setSelectedSegmentIndex:0];
-            break;
-    }
-    
-    if (!VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) || !(AVPlayer.availableHDRModes & AVPlayerHDRModeHDR10)) {
+    [self selectCodecPreference:currentSettings.preferredCodec];
+
+    BOOL hdrDecode = VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) || [Utils av1HardwareDecodeSupported];
+    if (!hdrDecode || ![Utils displaySupportsHDR10]) {
         [self.hdrSelector removeAllSegments];
         [self.hdrSelector insertSegmentWithTitle:@"Unsupported on this device" atIndex:0 animated:NO];
         [self.hdrSelector setEnabled:NO];
@@ -290,7 +297,13 @@ BOOL isCustomResolution(CGSize res) {
         _microphoneSelector = [self addYesNoControlTitled:@"Microphone Passthrough" below:_adaptiveBitrateSelector];
         [_microphoneSelector setSelectedSegmentIndex:currentSettings.enableMicrophone ? 1 : 0];
 #endif
+        UIView *quitAnchor = _microphoneSelector != nil ? _microphoneSelector : _adaptiveBitrateSelector;
+        _quitAppAfterSelector = [self addYesNoControlTitled:@"Quit App on Host"
+                                                   subtitle:@"When you end the stream. Unsaved progress on the host will be lost."
+                                                      below:quitAnchor];
+        [_quitAppAfterSelector setSelectedSegmentIndex:currentSettings.quitAppAfter ? 1 : 0];
     }
+    [self addLicenseEntry];
     [self.btMouseSelector setSelectedSegmentIndex:currentSettings.btMouseSupport ? 1 : 0];
     [self.optimizeSettingsSelector setSelectedSegmentIndex:currentSettings.optimizeGames ? 1 : 0];
     [self.framePacingSelector setSelectedSegmentIndex:currentSettings.useFramePacing ? 1 : 0];
@@ -311,6 +324,81 @@ BOOL isCustomResolution(CGSize res) {
     [self.bitrateSlider addTarget:self action:@selector(bitrateSliderMoved) forControlEvents:UIControlEventValueChanged];
     [self updateBitrateText];
     [self updateResolutionDisplayViewText];
+}
+
+- (void)removeCodecSegmentTitled:(NSString *)title {
+    for (NSInteger i = 0; i < self.codecSelector.numberOfSegments; i++) {
+        if ([[self.codecSelector titleForSegmentAtIndex:i] isEqualToString:title]) {
+            [self.codecSelector removeSegmentAtIndex:i animated:NO];
+            return;
+        }
+    }
+}
+
+- (void)selectCodecPreference:(int)preference {
+    NSString *title = @"Auto";
+    switch (preference) {
+        case CODEC_PREF_H264:
+            title = @"H.264";
+            break;
+        case CODEC_PREF_HEVC:
+            title = @"HEVC";
+            break;
+        case CODEC_PREF_AV1:
+            title = @"AV1";
+            break;
+        default:
+            title = @"Auto";
+            break;
+    }
+    for (NSInteger i = 0; i < self.codecSelector.numberOfSegments; i++) {
+        if ([[self.codecSelector titleForSegmentAtIndex:i] isEqualToString:title]) {
+            self.codecSelector.selectedSegmentIndex = i;
+            return;
+        }
+    }
+    for (NSInteger i = 0; i < self.codecSelector.numberOfSegments; i++) {
+        if ([[self.codecSelector titleForSegmentAtIndex:i] isEqualToString:@"Auto"]) {
+            self.codecSelector.selectedSegmentIndex = i;
+            return;
+        }
+    }
+}
+
+- (void)addLicenseEntry {
+    UIView *anchor = _quitAppAfterSelector;
+    if (anchor == nil) {
+        anchor = _microphoneSelector;
+    }
+    if (anchor == nil) {
+        anchor = _adaptiveBitrateSelector;
+    }
+    if (anchor == nil) {
+        anchor = self.statsOverlaySelector;
+    }
+    if (anchor == nil) {
+        anchor = self.bitrateSlider;
+    }
+
+    CGFloat y = CGRectGetMaxY(anchor.frame) + 28;
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(22, y, 420, 21)];
+    label.text = @"License";
+    label.font = [UIFont boldSystemFontOfSize:17];
+    label.textColor = [UIColor colorWithRed:0.939 green:0.963 blue:1 alpha:1];
+    [self.scrollView addSubview:label];
+
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.frame = CGRectMake(anchor.frame.origin.x, y + 27, MAX(anchor.frame.size.width, 280), 36);
+    button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    [button setTitle:@"GNU GPL version 3" forState:UIControlStateNormal];
+    [button setTitleColor:[UIColor colorWithRed:0.939 green:0.963 blue:1 alpha:1] forState:UIControlStateNormal];
+    button.titleLabel.font = [UIFont systemFontOfSize:17];
+    [button addTarget:self action:@selector(showLicense) forControlEvents:UIControlEventTouchUpInside];
+    [self.scrollView addSubview:button];
+}
+
+- (void)showLicense {
+    [AboutViewController presentFrom:self];
 }
 
 - (void) touchModeChanged {
@@ -532,25 +620,17 @@ BOOL isCustomResolution(CGSize res) {
 }
 
 - (uint32_t) getChosenCodecPreference {
-    // Auto is always the last segment
-    if (self.codecSelector.selectedSegmentIndex == self.codecSelector.numberOfSegments - 1) {
-        return CODEC_PREF_AUTO;
+    NSString *title = [self.codecSelector titleForSegmentAtIndex:self.codecSelector.selectedSegmentIndex];
+    if ([title isEqualToString:@"H.264"]) {
+        return CODEC_PREF_H264;
     }
-    else {
-        switch (self.codecSelector.selectedSegmentIndex) {
-            case 0:
-                return CODEC_PREF_H264;
-                
-            case 1:
-                return CODEC_PREF_HEVC;
-                
-            case 2:
-                return CODEC_PREF_AV1;
-                
-            default:
-                abort();
-        }
+    if ([title isEqualToString:@"HEVC"]) {
+        return CODEC_PREF_HEVC;
     }
+    if ([title isEqualToString:@"AV1"]) {
+        return CODEC_PREF_AV1;
+    }
+    return CODEC_PREF_AUTO;
 }
 
 - (NSInteger) getChosenStreamHeight {
@@ -591,6 +671,7 @@ BOOL isCustomResolution(CGSize res) {
     BOOL enableHdr = [self.hdrSelector selectedSegmentIndex] == 1;
     BOOL enableAdaptiveBitrate = [_adaptiveBitrateSelector selectedSegmentIndex] == 1;
     BOOL enableMicrophone = [_microphoneSelector selectedSegmentIndex] == 1;
+    BOOL quitAppAfter = [_quitAppAfterSelector selectedSegmentIndex] == 1;
     [dataMan saveSettingsWithBitrate:_bitrate
                            framerate:framerate
                               height:height
@@ -608,7 +689,8 @@ BOOL isCustomResolution(CGSize res) {
                    absoluteTouchMode:absoluteTouchMode
                         statsOverlay:statsOverlay
                enableAdaptiveBitrate:enableAdaptiveBitrate
-                   enableMicrophone:enableMicrophone];
+                   enableMicrophone:enableMicrophone
+                      quitAppAfter:quitAppAfter];
 }
 
 - (void)didReceiveMemoryWarning {

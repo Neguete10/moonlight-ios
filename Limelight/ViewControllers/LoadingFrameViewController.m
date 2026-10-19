@@ -7,6 +7,7 @@
 //
 
 #import "LoadingFrameViewController.h"
+#import "AppDelegate.h"
 
 @implementation LoadingFrameViewController {
     BOOL presented;
@@ -19,7 +20,7 @@
 }
 
 - (UIViewController*) activeViewController {
-    UIViewController *topController = [UIApplication sharedApplication].keyWindow.rootViewController;
+    UIViewController *topController = [AppDelegate currentWindow].rootViewController;
     
     while (topController.presentedViewController) {
         topController = topController.presentedViewController;

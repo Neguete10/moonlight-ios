@@ -8,6 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		693B3A9B218638CD00982F7B /* Settings.bundle in Resources */ = {isa = PBXBuildFile; fileRef = 693B3A9A218638CD00982F7B /* Settings.bundle */; };
+		A7E1B311EF96000100AB1311 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A7E1B310EF96000100AB1310 /* PrivacyInfo.xcprivacy */; };
+		A7E1B312EF96000100AB1312 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A7E1B310EF96000100AB1310 /* PrivacyInfo.xcprivacy */; };
+		A7E1B314EF96000100AB1314 /* LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = A7E1B313EF96000100AB1313 /* LICENSE.txt */; };
+		A7E1B315EF96000100AB1315 /* LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = A7E1B313EF96000100AB1313 /* LICENSE.txt */; };
+		A7E1B318EF96000100AB1318 /* AboutViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1B317EF96000100AB1317 /* AboutViewController.m */; };
+		A7E1B323EF96000100AB1323 /* SceneDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1B322EF96000100AB1322 /* SceneDelegate.m */; };
+		A7E1B319EF96000100AB1319 /* AboutViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1B317EF96000100AB1317 /* AboutViewController.m */; };
 		98181BE92791277400E43572 /* libSDL2.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 98181BE82791275D00E43572 /* libSDL2.a */; };
 		98181BEB2791278F00E43572 /* libSDL2.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 98181BEA2791278300E43572 /* libSDL2.a */; };
 		98181BED2791281100E43572 /* CoreMotion.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 98181BEC2791281100E43572 /* CoreMotion.framework */; };
@@ -198,10 +205,17 @@
 		986E28A528EA989100758361 /* Moonlight v1.9.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "Moonlight v1.9.xcdatamodel"; sourceTree = "<group>"; };
 		9874E8962AE95E1D00130A3C /* Moonlight v1.10.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "Moonlight v1.10.xcdatamodel"; sourceTree = "<group>"; };
 		A7E1B230EF96000100AB1030 /* Moonlight v1.11.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "Moonlight v1.11.xcdatamodel"; sourceTree = "<group>"; };
+		A7E1B320EF96000100AB1320 /* Twilight v1.12.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "Twilight v1.12.xcdatamodel"; sourceTree = "<group>"; };
 		A7E1B201EF96000100AB1001 /* AdaptiveBitrate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AdaptiveBitrate.h; sourceTree = "<group>"; };
 		A7E1B202EF96000100AB1002 /* AdaptiveBitrate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AdaptiveBitrate.m; sourceTree = "<group>"; };
 		A7E1B203EF96000100AB1003 /* MicrophoneCapture.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MicrophoneCapture.h; sourceTree = "<group>"; };
 		A7E1B204EF96000100AB1004 /* MicrophoneCapture.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MicrophoneCapture.m; sourceTree = "<group>"; };
+		A7E1B310EF96000100AB1310 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A7E1B313EF96000100AB1313 /* LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE.txt; sourceTree = "<group>"; };
+		A7E1B316EF96000100AB1316 /* AboutViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AboutViewController.h; sourceTree = "<group>"; };
+		A7E1B317EF96000100AB1317 /* AboutViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AboutViewController.m; sourceTree = "<group>"; };
+		A7E1B321EF96000100AB1321 /* SceneDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SceneDelegate.h; sourceTree = "<group>"; };
+		A7E1B322EF96000100AB1322 /* SceneDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SceneDelegate.m; sourceTree = "<group>"; };
 		98783FEA242EAC5D00F00EF4 /* Moonlight v1.5.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "Moonlight v1.5.xcdatamodel"; sourceTree = "<group>"; };
 		98882A032AF60F5300C5A11C /* libavcodec.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libavcodec.a; path = libs/FFmpeg/lib/iOS/libavcodec.a; sourceTree = "<group>"; };
 		98882A042AF60F5300C5A11C /* libavutil.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libavutil.a; path = libs/FFmpeg/lib/iOS/libavutil.a; sourceTree = "<group>"; };
@@ -406,6 +420,7 @@
 		FB290CE519B2C406004C83CF = {
 			isa = PBXGroup;
 			children = (
+				A7E1B313EF96000100AB1313 /* LICENSE.txt */,
 				9896219423D15C2900211983 /* X1Kit */,
 				98AB2E7F1CAD46830089BB98 /* moonlight-common.xcodeproj */,
 				FB290CF919B2C406004C83CF /* Moonlight */,
@@ -465,6 +480,8 @@
 				FB290CFA19B2C406004C83CF /* Supporting Files */,
 				FB290D0219B2C406004C83CF /* AppDelegate.h */,
 				FB290D0319B2C406004C83CF /* AppDelegate.m */,
+				A7E1B321EF96000100AB1321 /* SceneDelegate.h */,
+				A7E1B322EF96000100AB1322 /* SceneDelegate.m */,
 				FBDE86DE19F7A837001C18A8 /* UIComputerView.h */,
 				FBDE86DF19F7A837001C18A8 /* UIComputerView.m */,
 				FBDE86E419F82297001C18A8 /* UIAppView.h */,
@@ -486,6 +503,7 @@
 		FB290CFA19B2C406004C83CF /* Supporting Files */ = {
 			isa = PBXGroup;
 			children = (
+				A7E1B310EF96000100AB1310 /* PrivacyInfo.xcprivacy */,
 				FB290CFB19B2C406004C83CF /* Limelight-Info.plist */,
 				FB290CFC19B2C406004C83CF /* InfoPlist.strings */,
 				FB290CFF19B2C406004C83CF /* main.m */,
@@ -590,6 +608,8 @@
 				FB89462719F646E200339C8A /* StreamFrameViewController.m */,
 				FBD3494E19FF2174002D2A60 /* SettingsViewController.h */,
 				FBD3494F19FF2174002D2A60 /* SettingsViewController.m */,
+				A7E1B316EF96000100AB1316 /* AboutViewController.h */,
+				A7E1B317EF96000100AB1317 /* AboutViewController.m */,
 				FB4A23B61A9D3637004D2EF2 /* LoadingFrameViewController.h */,
 				FB4A23B71A9D3637004D2EF2 /* LoadingFrameViewController.m */,
 			);
@@ -768,6 +788,7 @@
 					};
 					FB290CED19B2C406004C83CF = {
 						LastSwiftMigration = 1140;
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -821,6 +842,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A7E1B312EF96000100AB1312 /* PrivacyInfo.xcprivacy in Resources */,
+				A7E1B315EF96000100AB1315 /* LICENSE.txt in Resources */,
 				693B3A9B218638CD00982F7B /* Settings.bundle in Resources */,
 				FB1A681E21328A1B00507771 /* Images.xcassets in Resources */,
 				FB1A67622132419A00507771 /* Assets.xcassets in Resources */,
@@ -832,6 +855,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A7E1B311EF96000100AB1311 /* PrivacyInfo.xcprivacy in Resources */,
+				A7E1B314EF96000100AB1314 /* LICENSE.txt in Resources */,
 				FB290E7919B37D81004C83CF /* iPad.storyboard in Resources */,
 				FB290CFE19B2C406004C83CF /* InfoPlist.strings in Resources */,
 				FB290E7B19B38036004C83CF /* iPhone.storyboard in Resources */,
@@ -928,6 +953,7 @@
 				FB1A67A7213245BD00507771 /* StreamManager.m in Sources */,
 				FB1A67A9213245BD00507771 /* VideoDecoderRenderer.m in Sources */,
 				FB1A67A12132458C00507771 /* main.m in Sources */,
+				A7E1B319EF96000100AB1319 /* AboutViewController.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -986,6 +1012,8 @@
 				FB9AFD3A1A7E05CE00872C98 /* ServerInfoResponse.m in Sources */,
 				FB89463119F646E200339C8A /* StreamManager.m in Sources */,
 				988FCD41293B091B003050E2 /* KeyboardInputField.m in Sources */,
+				A7E1B318EF96000100AB1318 /* AboutViewController.m in Sources */,
+				A7E1B323EF96000100AB1323 /* SceneDelegate.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1127,6 +1155,10 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = "io.github.neguete10.twilight.ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"ENABLE_APP_STORE_RESTRICTIONS",
+				);
 				SDKROOT = appletvos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OBJC_BRIDGING_HEADER = "Limelight/Input/Moonlight-Bridging-Header.h";
@@ -1257,6 +1289,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1308,6 +1341,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1343,6 +1377,10 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "io.github.neguete10.twilight.ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE = "";
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"ENABLE_APP_STORE_RESTRICTIONS",
+				);
 				SKIP_INSTALL = NO;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OBJC_BRIDGING_HEADER = "Limelight/Input/Moonlight-Bridging-Header.h";
@@ -1414,6 +1452,7 @@
 		FB290D0519B2C406004C83CF /* Limelight.xcdatamodeld */ = {
 			isa = XCVersionGroup;
 			children = (
+				A7E1B320EF96000100AB1320 /* Twilight v1.12.xcdatamodel */,
 				A7E1B230EF96000100AB1030 /* Moonlight v1.11.xcdatamodel */,
 				9874E8962AE95E1D00130A3C /* Moonlight v1.10.xcdatamodel */,
 				986E28A528EA989100758361 /* Moonlight v1.9.xcdatamodel */,
@@ -1431,7 +1470,7 @@
 				FB4678F21A51BDCB00377732 /* Limelight 0.3.0.xcdatamodel */,
 				FB290D0619B2C406004C83CF /* Limelight.xcdatamodel */,
 			);
-			currentVersion = A7E1B230EF96000100AB1030 /* Moonlight v1.11.xcdatamodel */;
+			currentVersion = A7E1B320EF96000100AB1320 /* Twilight v1.12.xcdatamodel */;
 			path = Limelight.xcdatamodeld;
 			sourceTree = "<group>";
 			versionGroupType = wrapper.xcdatamodel;

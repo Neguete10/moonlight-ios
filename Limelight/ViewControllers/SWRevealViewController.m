@@ -27,6 +27,7 @@
 #import <QuartzCore/QuartzCore.h>
 
 #import "SWRevealViewController.h"
+#import "AppDelegate.h"
 
 
 #pragma mark - StatusBar Helper Function
@@ -37,7 +38,8 @@ static CGFloat statusBarAdjustment( UIView* view )
 {
     CGFloat adjustment = 0.0f;
     UIApplication *app = [UIApplication sharedApplication];
-    CGRect viewFrame = [view convertRect:view.bounds toView:[app keyWindow]];
+    UIWindow *keyWindow = [AppDelegate currentWindow];
+    CGRect viewFrame = [view convertRect:view.bounds toView:keyWindow != nil ? keyWindow : view];
     CGRect statusBarFrame = [app statusBarFrame];
     
     if ( CGRectIntersectsRect(viewFrame, statusBarFrame) )

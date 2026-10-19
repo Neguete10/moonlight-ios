@@ -205,6 +205,8 @@
 			<string>PSGroupSpecifier</string>
 			<key>Title</key>
 			<string>Video Options</string>
+			<key>FooterText</key>
+			<string>Automatic uses AV1 when this Apple TV and the host both support it, then HEVC, then H.264. AV1 is ignored on a device that cannot decode it in hardware. HDR uses the 10-bit profile when the display supports HDR10.</string>
 		</dict>
 		<dict>
 			<key>Type</key>
@@ -220,12 +222,14 @@
 				<string>0</string>
 				<string>1</string>
 				<string>2</string>
+				<string>3</string>
 			</array>
 			<key>Titles</key>
 			<array>
 				<string>Auto</string>
 				<string>H.264</string>
 				<string>HEVC</string>
+				<string>AV1</string>
 			</array>
 		</dict>
 		<dict>
@@ -283,6 +287,32 @@
 			<string>statsOverlay</string>
 			<key>DefaultValue</key>
 			<false/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
+			<string>When the Stream Ends</string>
+			<key>FooterText</key>
+			<string>Quit the app on the host when you end the stream. Unsaved progress on the host will be lost. This does not run when the host ends the stream, or when Twilight goes to the background.</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Title</key>
+			<string>Quit App on Host</string>
+			<key>Key</key>
+			<string>quitAppAfter</string>
+			<key>DefaultValue</key>
+			<false/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
+			<string>License</string>
+			<key>FooterText</key>
+			<string>Twilight is licensed under the GNU General Public License, version 3. The App Store Distribution Exception at the end of that license allows distribution through an app store when the source is also available under the GPL. The full license is on the License button of the main screen. Source code: https://github.com/Neguete10/moonlight-ios</string>
 		</dict>
 	</array>
 </dict>

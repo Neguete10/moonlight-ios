@@ -8,6 +8,9 @@
 
 #import "Utils.h"
 
+#import <AVFoundation/AVFoundation.h>
+#import <VideoToolbox/VideoToolbox.h>
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
@@ -62,6 +65,17 @@ NSString *const deviceName = @"roth";
         }
     }
     return NO;
+}
+
++ (BOOL)av1HardwareDecodeSupported {
+    if (@available(iOS 16.0, tvOS 16.0, *)) {
+        return VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1);
+    }
+    return NO;
+}
+
++ (BOOL)displaySupportsHDR10 {
+    return (AVPlayer.availableHDRModes & AVPlayerHDRModeHDR10) != 0;
 }
 
 #if !TARGET_OS_TV
