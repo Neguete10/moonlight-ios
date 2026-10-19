@@ -398,6 +398,7 @@
     [self returnToMainFrame];
 }
 
+#if !TARGET_OS_TV
 - (void)edgeSwiped:(UIScreenEdgePanGestureRecognizer *)recognizer {
     if (recognizer.state != UIGestureRecognizerStateBegan || _endMenuPresented) {
         return;
@@ -405,6 +406,7 @@
     Log(LOG_I, @"User swiped to end stream");
     [self endStreamFromUserQuitHost:NO];
 }
+#endif
 
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer {
     if ([gestureRecognizer isKindOfClass:[UILongPressGestureRecognizer class]]) {
