@@ -31,11 +31,13 @@ static NSString * const kSourceRepositoryURL = @"https://github.com/Neguete10/mo
 
     UITextView *textView = [[UITextView alloc] initWithFrame:CGRectZero];
     textView.translatesAutoresizingMaskIntoConstraints = NO;
-    textView.editable = NO;
     textView.selectable = YES;
     textView.backgroundColor = [UIColor clearColor];
     textView.textColor = [UIColor whiteColor];
+#if !TARGET_OS_TV
+    textView.editable = NO;
     textView.dataDetectorTypes = UIDataDetectorTypeLink;
+#endif
     textView.alwaysBounceVertical = YES;
     textView.textContainerInset = UIEdgeInsetsMake(20, 16, 24, 16);
 #if TARGET_OS_TV
