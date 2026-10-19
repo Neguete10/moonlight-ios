@@ -69,7 +69,8 @@
                absoluteTouchMode:(BOOL)absoluteTouchMode
                     statsOverlay:(BOOL)statsOverlay
            enableAdaptiveBitrate:(BOOL)enableAdaptiveBitrate
-               enableMicrophone:(BOOL)enableMicrophone {
+               enableMicrophone:(BOOL)enableMicrophone
+                      quitAppAfter:(BOOL)quitAppAfter {
     
     [_managedObjectContext performBlockAndWait:^{
         Settings* settingsToSave = [self retrieveSettings];
@@ -91,6 +92,7 @@
         settingsToSave.statsOverlay = statsOverlay;
         settingsToSave.enableAdaptiveBitrate = enableAdaptiveBitrate;
         settingsToSave.enableMicrophone = enableMicrophone;
+        settingsToSave.quitAppAfter = quitAppAfter;
         
         [self saveData];
     }];

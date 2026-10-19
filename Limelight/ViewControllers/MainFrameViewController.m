@@ -27,6 +27,8 @@
 #import "IdManager.h"
 #import "ConnectionHelper.h"
 
+#import "AboutViewController.h"
+
 #if !TARGET_OS_TV
 #import "SettingsViewController.h"
 #else
@@ -436,7 +438,7 @@ static NSMutableSet* hostList;
 }
 
 - (UIViewController*) activeViewController {
-    UIViewController *topController = [UIApplication sharedApplication].keyWindow.rootViewController;
+    UIViewController *topController = [AppDelegate currentWindow].rootViewController;
 
     while (topController.presentedViewController) {
         topController = topController.presentedViewController;
@@ -672,17 +674,15 @@ static NSMutableSet* hostList;
     _streamConfig.serverCodecModeSupport = app.host.serverCodecModeSupport;
 
     BOOL hevcHardware = VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC);
-    BOOL av1Hardware = NO;
-#if defined(__IPHONE_16_0) || defined(__TVOS_16_0)
-    av1Hardware = VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1);
-#endif
+    BOOL av1Hardware = [Utils av1HardwareDecodeSupported];
+    BOOL hdrDisplay = [Utils displaySupportsHDR10];
 
     switch (streamSettings.preferredCodec) {
         case CODEC_PREF_AUTO:
-            // Automatic offers AV1 and HEVC when this device can decode them
-            // in hardware, and always offers H.264 as the baseline. moonlight-common-c
-            // picks AV1 when that bit is set and the host offers it, otherwise HEVC.
-            // PyroWave is not a format this client advertises.
+            // Automatic prefers AV1 when this device can decode it. moonlight-common-c
+            // (RtspConnection) takes AV1 when the mask has an AV1 bit and the host's
+            // RTSP DESCRIBE offers AV1/90000. If the host does not, it takes HEVC,
+            // then H.264. PyroWave is not a format this client advertises.
             if (av1Hardware) {
                 _streamConfig.supportedVideoFormats |= VIDEO_FORMAT_AV1_MAIN8;
             }
@@ -693,6 +693,8 @@ static NSMutableSet* hostList;
             break;
 
         case CODEC_PREF_AV1:
+            // Explicit AV1 still falls through to HEVC and H.264 so a host
+            // without AV1 can start a stream.
             if (av1Hardware) {
                 _streamConfig.supportedVideoFormats |= VIDEO_FORMAT_AV1_MAIN8;
             }
@@ -708,24 +710,26 @@ static NSMutableSet* hostList;
             _streamConfig.supportedVideoFormats |= VIDEO_FORMAT_H264;
             break;
     }
-    
-    // HEVC is supported if the user wants it (or it's required by the chosen resolution) and the SoC supports it
-    if ((_streamConfig.width > 4096 || _streamConfig.height > 4096 || streamSettings.enableHdr) && VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC)) {
+
+    // HEVC is required above 4K on NVENC, and it is the HDR fallback when the
+    // host cannot encode AV1.
+    if ((_streamConfig.width > 4096 || _streamConfig.height > 4096 || streamSettings.enableHdr) && hevcHardware) {
         _streamConfig.supportedVideoFormats |= VIDEO_FORMAT_H265;
-        
-        // HEVC Main10 is supported if the user wants it and the display supports it
-        if (streamSettings.enableHdr && (AVPlayer.availableHDRModes & AVPlayerHDRModeHDR10) != 0) {
+
+        if (streamSettings.enableHdr && hdrDisplay) {
             _streamConfig.supportedVideoFormats |= VIDEO_FORMAT_H265_MAIN10;
         }
     }
-    
-#if defined(__IPHONE_16_0) || defined(__TVOS_16_0)
-    // Add the AV1 Main10 format if AV1 and HDR are both enabled and supported
+
+    // AV1 Main 10-bit is the HDR profile. The host selects it only when its
+    // ServerCodecModeSupport includes SCM_AV1_MAIN10; otherwise common-c stays
+    // on AV1 Main 8.
     if ((_streamConfig.supportedVideoFormats & VIDEO_FORMAT_MASK_AV1) && streamSettings.enableHdr &&
-        VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1) && (AVPlayer.availableHDRModes & AVPlayerHDRModeHDR10) != 0) {
+        av1Hardware && hdrDisplay) {
         _streamConfig.supportedVideoFormats |= VIDEO_FORMAT_AV1_MAIN10;
     }
-#endif
+    Log(LOG_I, @"Video format mask 0x%x (AV1 hardware %d, HDR %d, HDR display %d)",
+        _streamConfig.supportedVideoFormats, av1Hardware, streamSettings.enableHdr, hdrDisplay);
 }
 
 - (void)appLongClicked:(TemporaryApp *)app view:(UIView *)view {
@@ -972,6 +976,12 @@ static NSMutableSet* hostList;
     // The settings button will direct the user into the Settings app on tvOS
     [_settingsButton setTarget:self];
     [_settingsButton setAction:@selector(openTvSettings:)];
+
+    UIBarButtonItem *licenseButton = [[UIBarButtonItem alloc] initWithTitle:@"License"
+                                                                        style:UIBarButtonItemStylePlain
+                                                                       target:self
+                                                                       action:@selector(showLicense:)];
+    self.navigationItem.rightBarButtonItem = licenseButton;
     
     // Restore focus on the selected app on view controller pop navigation
     self.restoresFocusAfterTransition = NO;
@@ -1051,6 +1061,11 @@ static NSMutableSet* hostList;
 - (void)openTvSettings:(id)sender
 {
     [[UIApplication sharedApplication] openURL:[NSURL URLWithString:UIApplicationOpenSettingsURLString] options:@{} completionHandler:nil];
+}
+
+- (void)showLicense:(id)sender
+{
+    [AboutViewController presentFrom:self];
 }
 #endif
 
@@ -1136,15 +1151,28 @@ static NSMutableSet* hostList;
     // Check for a pending shortcut action when appearing
     [self handlePendingShortcutAction];
     
+#if TARGET_OS_TV
+    // tvOS has no scene manifest, so the application notifications still fire.
     [[NSNotificationCenter defaultCenter] addObserver: self
                                              selector: @selector(handleReturnToForeground)
                                                  name: UIApplicationDidBecomeActiveNotification
                                                object: nil];
-    
     [[NSNotificationCenter defaultCenter] addObserver: self
                                              selector: @selector(handleEnterBackground)
                                                  name: UIApplicationWillResignActiveNotification
                                                object: nil];
+#else
+    // With a scene manifest, UIKit does not post the UIApplication active
+    // notifications. Observing both would run discovery twice.
+    [[NSNotificationCenter defaultCenter] addObserver: self
+                                             selector: @selector(handleReturnToForeground)
+                                                 name: UISceneDidActivateNotification
+                                               object: nil];
+    [[NSNotificationCenter defaultCenter] addObserver: self
+                                             selector: @selector(handleEnterBackground)
+                                                 name: UISceneWillDeactivateNotification
+                                               object: nil];
+#endif
 }
 
 - (void)viewWillAppear:(BOOL)animated

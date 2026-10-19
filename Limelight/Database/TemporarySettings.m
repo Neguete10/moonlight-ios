@@ -8,6 +8,7 @@
 
 #import "TemporarySettings.h"
 #import "OnScreenControls.h"
+#import "Utils.h"
 
 @implementation TemporarySettings
 
@@ -47,6 +48,7 @@
     self.statsOverlay = [[NSUserDefaults standardUserDefaults] boolForKey:@"statsOverlay"];
     self.enableAdaptiveBitrate = [[NSUserDefaults standardUserDefaults] boolForKey:@"enableAdaptiveBitrate"];
     self.enableMicrophone = NO;
+    self.quitAppAfter = [[NSUserDefaults standardUserDefaults] boolForKey:@"quitAppAfter"];
     
     NSInteger _screenSize = [[NSUserDefaults standardUserDefaults] integerForKey:@"streamResolution"];
     switch (_screenSize) {
@@ -89,7 +91,13 @@
     self.statsOverlay = settings.statsOverlay;
     self.enableAdaptiveBitrate = settings.enableAdaptiveBitrate;
     self.enableMicrophone = settings.enableMicrophone;
+    self.quitAppAfter = settings.quitAppAfter;
 #endif
+    if (self.preferredCodec == CODEC_PREF_AV1 && ![Utils av1HardwareDecodeSupported]) {
+        // The tvOS settings bundle cannot hide a row per device. A stored AV1
+        // choice on hardware without AV1 decode is Automatic (HEVC, then H.264).
+        self.preferredCodec = CODEC_PREF_AUTO;
+    }
     self.uniqueId = settings.uniqueId;
     
     return self;
