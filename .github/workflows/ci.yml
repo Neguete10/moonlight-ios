@@ -20,6 +20,9 @@ jobs:
     runs-on: macos-latest
     strategy:
       fail-fast: false
+      # One macOS runner at a time. Queued hosted runners were cancelled
+      # after waiting out the capacity timeout.
+      max-parallel: 1
       matrix:
         include:
           - scheme: Moonlight
@@ -56,6 +59,7 @@ jobs:
 
   visionos:
     name: Build (visionOS simulator, non-blocking)
+    needs: [build]
     runs-on: macos-latest
     continue-on-error: true
     steps:
@@ -121,6 +125,7 @@ jobs:
 
   ios27-launch:
     name: Launch (iOS 27 simulator, if installed)
+    needs: [visionos]
     runs-on: macos-latest
     steps:
       - name: Checkout
