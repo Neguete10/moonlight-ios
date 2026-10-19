@@ -345,7 +345,12 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
     self.backgroundColor = [UIColor clearColor];
 
     _hostLabel = [[UILabel alloc] init];
+    // Large Title is not part of the tvOS text styles.
+#if TARGET_OS_TV
+    _hostLabel.font = [TwilightTheme fontForStyle:UIFontTextStyleTitle1 weight:UIFontWeightSemibold];
+#else
     _hostLabel.font = [TwilightTheme fontForStyle:UIFontTextStyleLargeTitle weight:UIFontWeightSemibold];
+#endif
     _hostLabel.adjustsFontForContentSizeCategory = YES;
     _hostLabel.adjustsFontSizeToFitWidth = YES;
     _hostLabel.minimumScaleFactor = 0.6;
