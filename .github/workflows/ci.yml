@@ -215,3 +215,144 @@ jobs:
             exit 1
           fi
           echo "Twilight was still running 3 seconds after launch on iOS 27."
+
+  ui-screenshots:
+    name: UI screenshots (iOS Simulator)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Download iOS platform
+        run: xcodebuild -downloadPlatform iOS
+
+      - name: Capture before and after screenshots
+        run: |
+          set -euo pipefail
+          out="$GITHUB_WORKSPACE/ui-screenshots"
+          mkdir -p "$out"
+          git fetch origin cursor/twilight-ios-phase4-271e
+          before_sha="$(git rev-parse origin/cursor/twilight-ios-phase4-271e)"
+          git worktree add --detach /tmp/twilight-before "$before_sha"
+          git -C /tmp/twilight-before submodule update --init --recursive
+
+          python3 - << 'PY'
+          import json, subprocess, sys
+          runtimes = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "-j"]))
+          ios = [r for r in runtimes.get("runtimes", []) if r.get("isAvailable") and str(r.get("platform")) == "iOS"]
+          if not ios:
+              print("NO_IOS_RUNTIME")
+              sys.exit(0)
+          ios.sort(key=lambda r: [int(p) if p.isdigit() else 0 for p in str(r.get("version", "0")).split(".")])
+          chosen = ios[-1]
+          open("/tmp/twilight-runtime-id", "w").write(chosen["identifier"])
+          print(chosen["identifier"], chosen.get("version"))
+          PY
+          if [ ! -s /tmp/twilight-runtime-id ]; then
+            echo "No iOS simulator runtime is installed, so UI screenshots were not captured."
+            exit 1
+          fi
+          runtime_id="$(cat /tmp/twilight-runtime-id)"
+
+          python3 - "$runtime_id" << 'PY'
+          import json, subprocess, sys
+          runtime = sys.argv[1]
+          types = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devicetypes", "-j"]))
+          names = [d.get("name", "") for d in types.get("devicetypes", [])]
+          def pick(prefixes):
+              for prefix in prefixes:
+                  for name in names:
+                      if name.startswith(prefix):
+                          return name
+              return None
+          iphone = pick(["iPhone 17", "iPhone 16", "iPhone"])
+          ipad = pick(["iPad Pro 13", "iPad Pro 11", "iPad"])
+          if not iphone or not ipad:
+              sys.exit("Could not find an iPhone and iPad simulator device type")
+          open("/tmp/twilight-iphone-type", "w").write(iphone)
+          open("/tmp/twilight-ipad-type", "w").write(ipad)
+          print(iphone)
+          print(ipad)
+          PY
+
+          build_app() {
+            local src="$1"
+            local dd="$2"
+            local appfile="$3"
+            if ! xcodebuild -project "$src/Moonlight.xcodeproj" -scheme Moonlight -configuration Debug -sdk iphonesimulator -derivedDataPath "$dd" build >"$dd-build.log" 2>&1; then
+              echo "xcodebuild failed for $src"
+              tail -n 80 "$dd-build.log"
+              exit 1
+            fi
+            find "$dd/Build/Products" -name Moonlight.app -path '*iphonesimulator*' | head -1 > "$appfile" || true
+          }
+
+          echo "Building the phase 4 UI for the before shots"
+          build_app /tmp/twilight-before /tmp/dd-before /tmp/twilight-before-app
+          echo "Building this commit for the after shots"
+          build_app "$GITHUB_WORKSPACE" /tmp/dd-after /tmp/twilight-after-app
+          before_app="$(cat /tmp/twilight-before-app)"
+          after_app="$(cat /tmp/twilight-after-app)"
+          echo "Before app: $before_app"
+          echo "After app: $after_app"
+          test -d "$before_app"
+          test -d "$after_app"
+
+          boot_device() {
+            local name="$1"
+            local type="$2"
+            local udid
+            udid="$(xcrun simctl create "$name" "$type" "$runtime_id")"
+            xcrun simctl boot "$udid"
+            xcrun simctl bootstatus "$udid" -b
+            printf '%s' "$udid" > /tmp/twilight-booted-udid
+          }
+
+          shot() {
+            local udid="$1"
+            local app="$2"
+            local appearance="$3"
+            local mode="$4"
+            local file="$5"
+            xcrun simctl ui "$udid" appearance "$appearance" || true
+            xcrun simctl terminate "$udid" io.github.neguete10.twilight.ios || true
+            xcrun simctl install "$udid" "$app"
+            if [ -n "$mode" ]; then
+              SIMCTL_CHILD_TWILIGHT_SCREENSHOT="$mode" xcrun simctl launch "$udid" io.github.neguete10.twilight.ios
+            else
+              xcrun simctl launch "$udid" io.github.neguete10.twilight.ios
+            fi
+            sleep 5
+            xcrun simctl io "$udid" screenshot "$file"
+            echo "Wrote $file"
+          }
+
+          boot_device "Twilight iPhone" "$(cat /tmp/twilight-iphone-type)"
+          iphone="$(cat /tmp/twilight-booted-udid)"
+          shot "$iphone" "$before_app" light "" "$out/before-iphone-hosts-light.png"
+          shot "$iphone" "$before_app" dark "" "$out/before-iphone-hosts-dark.png"
+          shot "$iphone" "$after_app" light hosts "$out/after-iphone-hosts-light.png"
+          shot "$iphone" "$after_app" dark hosts "$out/after-iphone-hosts-dark.png"
+          shot "$iphone" "$after_app" light library "$out/after-iphone-library-light.png"
+          shot "$iphone" "$after_app" dark library "$out/after-iphone-library-dark.png"
+          shot "$iphone" "$after_app" light settings "$out/after-iphone-settings-light.png"
+          shot "$iphone" "$after_app" light loading "$out/after-iphone-loading-light.png"
+          xcrun simctl shutdown "$iphone" || true
+
+          boot_device "Twilight iPad" "$(cat /tmp/twilight-ipad-type)"
+          ipad="$(cat /tmp/twilight-booted-udid)"
+          shot "$ipad" "$before_app" light "" "$out/before-ipad-hosts-light.png"
+          shot "$ipad" "$after_app" light hosts "$out/after-ipad-hosts-light.png"
+          shot "$ipad" "$after_app" light library "$out/after-ipad-library-light.png"
+          xcrun simctl shutdown "$ipad" || true
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots
+          path: ui-screenshots/
+          if-no-files-found: warn

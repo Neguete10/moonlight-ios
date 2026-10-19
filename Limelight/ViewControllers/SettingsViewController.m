@@ -12,6 +12,7 @@
 #import "DataManager.h"
 #import "StreamConfiguration.h"
 #import "Utils.h"
+#import "TwilightTheme.h"
 
 #import <VideoToolbox/VideoToolbox.h>
 #import <AVFoundation/AVFoundation.h>
@@ -30,30 +31,32 @@
 
 - (UISegmentedControl *)addYesNoControlTitled:(NSString *)title subtitle:(NSString *)subtitle below:(UIView *)anchor {
     CGFloat y = CGRectGetMaxY(anchor.frame) + 20;
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(22, y, 420, 21)];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(22, y, 420, 24)];
     label.text = title;
-    label.font = [UIFont boldSystemFontOfSize:17];
-    label.textColor = [UIColor colorWithRed:0.939 green:0.963 blue:1 alpha:1];
+    label.font = [TwilightTheme fontForStyle:UIFontTextStyleHeadline weight:UIFontWeightSemibold];
+    label.adjustsFontForContentSizeCategory = YES;
+    label.textColor = [TwilightTheme ink];
     [self.scrollView addSubview:label];
 
-    CGFloat controlY = y + 27;
+    CGFloat controlY = y + 30;
     if (subtitle.length > 0) {
-        UILabel *detail = [[UILabel alloc] initWithFrame:CGRectMake(22, y + 22, 420, 34)];
+        UILabel *detail = [[UILabel alloc] initWithFrame:CGRectMake(22, y + 24, 420, 36)];
         detail.text = subtitle;
-        detail.font = [UIFont systemFontOfSize:13];
-        detail.textColor = [UIColor colorWithRed:0.75 green:0.78 blue:0.85 alpha:1];
+        detail.font = [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightRegular];
+        detail.adjustsFontForContentSizeCategory = YES;
+        detail.textColor = [TwilightTheme secondary];
+        detail.tag = 2;
         detail.numberOfLines = 2;
         [self.scrollView addSubview:detail];
-        controlY = y + 58;
+        controlY = y + 64;
     }
 
     UISegmentedControl *control = [[UISegmentedControl alloc] initWithItems:@[@"No", @"Yes"]];
-    control.frame = CGRectMake(anchor.frame.origin.x, controlY, anchor.frame.size.width, 28);
+    control.frame = CGRectMake(anchor.frame.origin.x, controlY, anchor.frame.size.width, 32);
     control.selectedSegmentIndex = 0;
-    UIColor *tint = [UIColor colorWithRed:0.672 green:0.617 blue:0.999 alpha:1];
-    control.tintColor = tint;
+    control.tintColor = [TwilightTheme accent];
     if (@available(iOS 13.0, tvOS 13.0, *)) {
-        control.selectedSegmentTintColor = tint;
+        control.selectedSegmentTintColor = [TwilightTheme accent];
     }
     [self.scrollView addSubview:control];
     return control;
@@ -181,10 +184,9 @@ BOOL isCustomResolution(CGSize res) {
 - (void)viewDidLoad {
     [super viewDidLoad];
 
-    // Always run settings in dark mode because we want the light fonts
-    if (@available(iOS 13.0, tvOS 13.0, *)) {
-        self.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
-    }
+    self.view.backgroundColor = [TwilightTheme background];
+    self.scrollView.backgroundColor = [TwilightTheme background];
+    self.view.tintColor = [TwilightTheme accent];
     
     DataManager* dataMan = [[DataManager alloc] init];
     TemporarySettings* currentSettings = [dataMan getSettings];
@@ -213,6 +215,8 @@ BOOL isCustomResolution(CGSize res) {
     
     self.resolutionDisplayView.layer.cornerRadius = 10;
     self.resolutionDisplayView.clipsToBounds = YES;
+    self.resolutionDisplayView.backgroundColor = [TwilightTheme field];
+    [TwilightTheme applyBorderToLayer:self.resolutionDisplayView.layer width:1 traitCollection:self.traitCollection];
     UITapGestureRecognizer *resolutionDisplayViewTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(resolutionDisplayViewTapped:)];
     [self.resolutionDisplayView addGestureRecognizer:resolutionDisplayViewTap];
     
@@ -324,6 +328,7 @@ BOOL isCustomResolution(CGSize res) {
     [self.bitrateSlider addTarget:self action:@selector(bitrateSliderMoved) forControlEvents:UIControlEventValueChanged];
     [self updateBitrateText];
     [self updateResolutionDisplayViewText];
+    [self applyTwilightChrome];
 }
 
 - (void)removeCodecSegmentTitled:(NSString *)title {
@@ -381,18 +386,21 @@ BOOL isCustomResolution(CGSize res) {
     }
 
     CGFloat y = CGRectGetMaxY(anchor.frame) + 28;
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(22, y, 420, 21)];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(22, y, 420, 24)];
     label.text = @"License";
-    label.font = [UIFont boldSystemFontOfSize:17];
-    label.textColor = [UIColor colorWithRed:0.939 green:0.963 blue:1 alpha:1];
+    label.font = [TwilightTheme fontForStyle:UIFontTextStyleHeadline weight:UIFontWeightSemibold];
+    label.adjustsFontForContentSizeCategory = YES;
+    label.textColor = [TwilightTheme ink];
     [self.scrollView addSubview:label];
 
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
-    button.frame = CGRectMake(anchor.frame.origin.x, y + 27, MAX(anchor.frame.size.width, 280), 36);
+    button.frame = CGRectMake(anchor.frame.origin.x, y + 30, MAX(anchor.frame.size.width, 280), 40);
     button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
     [button setTitle:@"GNU GPL version 3" forState:UIControlStateNormal];
-    [button setTitleColor:[UIColor colorWithRed:0.939 green:0.963 blue:1 alpha:1] forState:UIControlStateNormal];
-    button.titleLabel.font = [UIFont systemFontOfSize:17];
+    [button setTitleColor:[TwilightTheme accent] forState:UIControlStateNormal];
+    button.titleLabel.font = [TwilightTheme fontForStyle:UIFontTextStyleBody weight:UIFontWeightSemibold];
+    button.backgroundColor = [TwilightTheme fill];
+    button.layer.cornerRadius = 12;
     [button addTarget:self action:@selector(showLicense) forControlEvents:UIControlEventTouchUpInside];
     [self.scrollView addSubview:button];
 }
@@ -575,19 +583,21 @@ BOOL isCustomResolution(CGSize res) {
     CGFloat viewFrameWidth = self.resolutionDisplayView.frame.size.width;
     CGFloat viewFrameHeight = self.resolutionDisplayView.frame.size.height;
     CGFloat padding = 10;
-    CGFloat fontSize = [UIFont smallSystemFontSize];
     
     for (UIView *subview in self.resolutionDisplayView.subviews) {
         [subview removeFromSuperview];
     }
     UILabel *label1 = [[UILabel alloc] init];
     label1.text = @"Set PC/Game resolution: ";
-    label1.font = [UIFont systemFontOfSize:fontSize];
+    label1.font = [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightRegular];
+    label1.textColor = [TwilightTheme secondary];
     [label1 sizeToFit];
     label1.frame = CGRectMake(padding, (viewFrameHeight - label1.frame.size.height) / 2, label1.frame.size.width, label1.frame.size.height);
 
     UILabel *label2 = [[UILabel alloc] init];
     label2.text = [NSString stringWithFormat:@"%ld x %ld", (long)width, (long)height];
+    label2.textColor = [TwilightTheme ink];
+    label2.font = [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightSemibold];
     [label2 sizeToFit];
     label2.frame = CGRectMake(viewFrameWidth - label2.frame.size.width - padding, (viewFrameHeight - label2.frame.size.height) / 2, label2.frame.size.width, label2.frame.size.height);
 
@@ -604,6 +614,61 @@ BOOL isCustomResolution(CGSize res) {
 - (void) updateBitrateText {
     // Display bitrate in Mbps
     [self.bitrateLabel setText:[NSString stringWithFormat:bitrateFormat, _bitrate / 1000.]];
+    self.bitrateLabel.textColor = [TwilightTheme ink];
+}
+
+- (void)applyTwilightChrome {
+    self.view.backgroundColor = [TwilightTheme background];
+    self.scrollView.backgroundColor = [TwilightTheme background];
+    self.view.tintColor = [TwilightTheme accent];
+    self.resolutionDisplayView.backgroundColor = [TwilightTheme field];
+    [TwilightTheme applyBorderToLayer:self.resolutionDisplayView.layer width:1 traitCollection:self.traitCollection];
+    if (@available(iOS 13.0, tvOS 13.0, *)) {
+        self.overrideUserInterfaceStyle = UIUserInterfaceStyleUnspecified;
+    }
+    [self styleTwilightControls:self.scrollView];
+    self.bitrateSlider.minimumTrackTintColor = [TwilightTheme accent];
+}
+
+- (void)styleTwilightControls:(UIView *)root {
+    for (UIView *view in root.subviews) {
+        if ([view isKindOfClass:[UILabel class]]) {
+            UILabel *label = (UILabel *)view;
+            BOOL bold = (label.font.fontDescriptor.symbolicTraits & UIFontDescriptorTraitBold) != 0;
+            if (label.tag == 2) {
+                label.textColor = [TwilightTheme secondary];
+                label.font = [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightRegular];
+            }
+            else {
+                label.textColor = [TwilightTheme ink];
+                label.font = [TwilightTheme fontForStyle:bold ? UIFontTextStyleHeadline : UIFontTextStyleBody weight:bold ? UIFontWeightSemibold : UIFontWeightRegular];
+            }
+            label.adjustsFontForContentSizeCategory = YES;
+            label.adjustsFontSizeToFitWidth = YES;
+            label.minimumScaleFactor = 0.7;
+        }
+        else if ([view isKindOfClass:[UISegmentedControl class]]) {
+            UISegmentedControl *control = (UISegmentedControl *)view;
+            control.tintColor = [TwilightTheme accent];
+            if (@available(iOS 13.0, tvOS 13.0, *)) {
+                control.selectedSegmentTintColor = [TwilightTheme accent];
+                [control setTitleTextAttributes:@{
+                    NSForegroundColorAttributeName: [TwilightTheme ink],
+                    NSFontAttributeName: [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightSemibold],
+                } forState:UIControlStateNormal];
+                [control setTitleTextAttributes:@{
+                    NSForegroundColorAttributeName: [TwilightTheme accentInk],
+                    NSFontAttributeName: [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightSemibold],
+                } forState:UIControlStateSelected];
+            }
+        }
+        else if ([view isKindOfClass:[UISlider class]]) {
+            ((UISlider *)view).minimumTrackTintColor = [TwilightTheme accent];
+        }
+        else if (![view isKindOfClass:[UIButton class]] && view != self.resolutionDisplayView) {
+            [self styleTwilightControls:view];
+        }
+    }
 }
 
 - (NSInteger) getChosenFrameRate {

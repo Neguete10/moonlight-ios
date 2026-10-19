@@ -28,6 +28,9 @@
 #import "ConnectionHelper.h"
 
 #import "AboutViewController.h"
+#import "TwilightTheme.h"
+
+#include <stdlib.h>
 
 #if !TARGET_OS_TV
 #import "SettingsViewController.h"
@@ -53,8 +56,14 @@
     UIScrollView* hostScrollView;
     FrontViewPosition currentPosition;
     NSArray* _sortedAppList;
+    TemporaryApp* _desktopApp;
     NSCache* _boxArtCache;
     bool _background;
+    BOOL _screenshotFixture;
+    UIView* _emptyState;
+    UILabel* _emptyTitle;
+    UILabel* _emptyDetail;
+    UIImageView* _emptySymbol;
 #if TARGET_OS_TV
     UITapGestureRecognizer* _menuRecognizer;
 #endif
@@ -126,19 +135,45 @@ static NSMutableSet* hostList;
 
 - (void)enableUpButton {
 #if !TARGET_OS_TV
-    [self->_upButton setTitle:@"Select New Host"];
+    if ([self twilightUsesHostSidebar]) {
+        [self->_upButton setTitle:nil];
+        return;
+    }
+    [self->_upButton setTitle:@"Hosts"];
+#endif
+}
+
+- (BOOL)twilightUsesHostSidebar {
+#if TARGET_OS_TV
+    return NO;
+#else
+    UIUserInterfaceIdiom idiom = UI_USER_INTERFACE_IDIOM();
+    if (idiom == UIUserInterfaceIdiomPad) {
+        return YES;
+    }
+    if (@available(iOS 17.0, *)) {
+        if (idiom == UIUserInterfaceIdiomVision) {
+            return YES;
+        }
+    }
+    return NO;
+#endif
+}
+
+- (BOOL)screenshotFixtureActive {
+#if DEBUG
+    return _screenshotFixture || getenv("TWILIGHT_SCREENSHOT") != NULL;
+#else
+    return NO;
 #endif
 }
 
 - (void)updateTitle {
-    if (_selectedHost != nil) {
+    if (_selectedHost != nil && ![self twilightUsesHostSidebar]) {
         self.title = _selectedHost.name;
     }
-    else if ([hostList count] == 0) {
-        self.title = @"Searching for PCs on your network...";
-    }
     else {
-        self.title = @"Select Host";
+        self.title = @"Twilight";
     }
 }
 
@@ -305,7 +340,11 @@ static NSMutableSet* hostList;
     [self disableUpButton];
     
     [self.collectionView reloadData];
-    [self.view addSubview:hostScrollView];
+    if (hostScrollView.superview == nil) {
+        [self.view addSubview:hostScrollView];
+    }
+    [self.view bringSubviewToFront:hostScrollView];
+    [self layoutTwilightChrome];
 }
 
 - (void) receivedAssetForApp:(TemporaryApp*)app {
@@ -784,66 +823,7 @@ static NSMutableSet* hostList;
     if (currentApp != nil) {
         [alertController addAction:[UIAlertAction actionWithTitle:
                                     [app.id isEqualToString:currentApp.id] ? @"Quit App" : @"Quit Running App and Start" style:UIAlertActionStyleDestructive handler:^(UIAlertAction* action){
-                                        Log(LOG_I, @"Quitting application: %@", currentApp.name);
-                                        [self showLoadingFrame: ^{
-                                            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-                                                HttpManager* hMan = [[HttpManager alloc] initWithHost:app.host];
-                                                HttpResponse* quitResponse = [[HttpResponse alloc] init];
-                                                HttpRequest* quitRequest = [HttpRequest requestForResponse: quitResponse withUrlRequest:[hMan newQuitAppRequest]];
-                                                
-                                                // Exempt this host from discovery while handling the quit operation
-                                                [self->_discMan pauseDiscoveryForHost:app.host];
-                                                [hMan executeRequestSynchronously:quitRequest];
-                                                if (quitResponse.statusCode == 200) {
-                                                    ServerInfoResponse* serverInfoResp = [[ServerInfoResponse alloc] init];
-                                                    [hMan executeRequestSynchronously:[HttpRequest requestForResponse:serverInfoResp withUrlRequest:[hMan newServerInfoRequest:false]
-                                                                                                        fallbackError:401 fallbackRequest:[hMan newHttpServerInfoRequest]]];
-                                                    if (![serverInfoResp isStatusOk] || [[serverInfoResp getStringTag:@"state"] hasSuffix:@"_SERVER_BUSY"]) {
-                                                        // On newer GFE versions, the quit request succeeds even though the app doesn't
-                                                        // really quit if another client tries to kill your app. We'll patch the response
-                                                        // to look like the old error in that case, so the UI behaves.
-                                                        quitResponse.statusCode = 599;
-                                                    }
-                                                    else if ([serverInfoResp isStatusOk]) {
-                                                        // Update the host object with this info
-                                                        [serverInfoResp populateHost:app.host];
-                                                    }
-                                                }
-                                                [self->_discMan resumeDiscoveryForHost:app.host];
-
-                                                // If it fails, display an error and stop the current operation
-                                                if (quitResponse.statusCode != 200) {
-                                                    UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"Quitting App Failed"
-                                                                                                message:@"Failed to quit app. If this app was started by "
-                                                             "another device, you'll need to quit from that device."
-                                                                                         preferredStyle:UIAlertControllerStyleAlert];
-                                                    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-                                                    dispatch_async(dispatch_get_main_queue(), ^{
-                                                        [self updateAppsForHost:app.host];
-                                                        [self hideLoadingFrame: ^{
-                                                            [[self activeViewController] presentViewController:alert animated:YES completion:nil];
-                                                        }];
-                                                    });
-                                                }
-                                                else {
-                                                    app.host.currentGame = @"0";
-                                                    dispatch_async(dispatch_get_main_queue(), ^{
-                                                        // If it succeeds and we're to start streaming, segue to the stream
-                                                        if (![app.id isEqualToString:currentApp.id]) {
-                                                            [self prepareToStreamApp:app];
-                                                            [self hideLoadingFrame: ^{
-                                                                [self performSegueWithIdentifier:@"createStreamFrame" sender:nil];
-                                                            }];
-                                                        }
-                                                        else {
-                                                            // Otherwise, just hide the loading icon
-                                                            [self hideLoadingFrame:nil];
-                                                        }
-                                                    });
-                                                }
-                                            });
-                                        }];
-                                        
+                                        [self quitRunningApp:currentApp thenStream:app];
                                     }]];
     }
 
@@ -991,7 +971,7 @@ static NSMutableSet* hostList;
     [_menuRecognizer addTarget:self action: @selector(showHostSelectionView)];
     _menuRecognizer.allowedPressTypes = [[NSArray alloc] initWithObjects:[NSNumber numberWithLong:UIPressTypeMenu], nil];
     
-    self.navigationController.navigationBar.titleTextAttributes = [NSDictionary dictionaryWithObject:[UIColor whiteColor] forKey:NSForegroundColorAttributeName];
+    [TwilightTheme applyToNavigationBar:self.navigationController.navigationBar];
 #endif
     
     _loadingFrame = [self.storyboard instantiateViewControllerWithIdentifier:@"loadingFrame"];
@@ -1015,9 +995,23 @@ static NSMutableSet* hostList;
     _boxArtCache = [[NSCache alloc] init];
         
     hostScrollView = [[ComputerScrollView alloc] init];
-    hostScrollView.frame = CGRectMake(0, self.navigationController.navigationBar.frame.origin.y + self.navigationController.navigationBar.frame.size.height, self.view.frame.size.width, self.view.frame.size.height / 2);
-    [hostScrollView setShowsHorizontalScrollIndicator:NO];
+    hostScrollView.frame = CGRectMake(0, 0, self.view.frame.size.width, self.view.frame.size.height / 2);
     hostScrollView.delaysContentTouches = NO;
+    hostScrollView.backgroundColor = [UIColor clearColor];
+#if TARGET_OS_TV
+    [hostScrollView setShowsHorizontalScrollIndicator:NO];
+#else
+    [hostScrollView setShowsHorizontalScrollIndicator:NO];
+    [hostScrollView setShowsVerticalScrollIndicator:YES];
+#endif
+
+    self.collectionView.backgroundColor = [TwilightTheme background];
+    self.collectionView.indicatorStyle = UIScrollViewIndicatorStyleDefault;
+    [self.collectionView registerClass:[TwilightLibraryHeader class]
+             forSupplementaryViewOfKind:UICollectionElementKindSectionHeader
+                    withReuseIdentifier:@"TwilightLibraryHeader"];
+    [self installEmptyState];
+    [TwilightTheme applyToNavigationBar:self.navigationController.navigationBar];
     
     self.collectionView.delaysContentTouches = NO;
     self.collectionView.allowsMultipleSelection = NO;
@@ -1071,6 +1065,9 @@ static NSMutableSet* hostList;
 
 -(void)beginForegroundRefresh
 {
+    if ([self screenshotFixtureActive]) {
+        return;
+    }
     if (!_background) {
         // This will kick off box art caching
         [self updateHosts];
@@ -1142,11 +1139,7 @@ static NSMutableSet* hostList;
 #endif
     
     [self.navigationController setNavigationBarHidden:NO animated:YES];
-    
-    // Hide 1px border line
-    UIImage* fakeImage = [[UIImage alloc] init];
-    [self.navigationController.navigationBar setShadowImage:fakeImage];
-    [self.navigationController.navigationBar setBackgroundImage:fakeImage forBarPosition:UIBarPositionAny barMetrics:UIBarMetricsDefault];
+    [TwilightTheme applyToNavigationBar:self.navigationController.navigationBar];
     
     // Check for a pending shortcut action when appearing
     [self handlePendingShortcutAction];
@@ -1173,6 +1166,7 @@ static NSMutableSet* hostList;
                                                  name: UISceneWillDeactivateNotification
                                                object: nil];
 #endif
+    [self applyScreenshotFixtureIfRequested];
 }
 
 - (void)viewWillAppear:(BOOL)animated
@@ -1234,6 +1228,9 @@ static NSMutableSet* hostList;
 }
 
 - (void) updateAllHosts:(NSArray *)hosts {
+    if ([self screenshotFixtureActive]) {
+        return;
+    }
     // We must copy the array here because it could be modified
     // before our main thread dispatch happens.
     NSArray* hostsCopy = [NSArray arrayWithArray:hosts];
@@ -1285,8 +1282,11 @@ static NSMutableSet* hostList;
         NSArray* sortedHostList = [[hostList allObjects] sortedArrayUsingSelector:@selector(compareName:)];
         for (TemporaryHost* comp in sortedHostList) {
             compView = [[UIComputerView alloc] initWithComputer:comp andCallback:self];
+            [compView setMarkedSelected:_selectedHost != nil && [comp.uuid isEqualToString:_selectedHost.uuid]];
+#if TARGET_OS_TV
             compView.center = CGPointMake([self getCompViewX:compView addComp:addComp prevEdge:prevEdge], hostScrollView.frame.size.height / 2);
             prevEdge = compView.frame.origin.x + compView.frame.size.width;
+#endif
             [hostScrollView addSubview:compView];
             
             // Start jobs to decode the box art in advance
@@ -1304,11 +1304,16 @@ static NSMutableSet* hostList;
     // Update the title in case we now have a PC
     [self updateTitle];
     
+#if TARGET_OS_TV
     prevEdge = [self getCompViewX:addComp addComp:addComp prevEdge:prevEdge];
     addComp.center = CGPointMake(prevEdge, hostScrollView.frame.size.height / 2);
-    
     [hostScrollView addSubview:addComp];
     [hostScrollView setContentSize:CGSizeMake(prevEdge + addComp.frame.size.width, hostScrollView.frame.size.height)];
+#else
+    [hostScrollView addSubview:addComp];
+    [self layoutHostRows];
+#endif
+    [self layoutEmptyState];
 }
 
 - (float) getCompViewX:(UIComputerView*)comp addComp:(UIComputerView*)addComp prevEdge:(float)prevEdge {
@@ -1392,9 +1397,31 @@ static NSMutableSet* hostList;
         }
         _sortedAppList = visibleAppList;
     }
+
+    _desktopApp = nil;
+#if !TARGET_OS_TV
+    NSMutableArray* gridApps = [NSMutableArray array];
+    for (TemporaryApp* app in _sortedAppList) {
+        if ([app.name caseInsensitiveCompare:@"Desktop"] == NSOrderedSame && _desktopApp == nil) {
+            _desktopApp = app;
+            continue;
+        }
+        [gridApps addObject:app];
+    }
+    _sortedAppList = gridApps;
+#endif
     
-    [hostScrollView removeFromSuperview];
+    if ([self twilightUsesHostSidebar]) {
+        if (hostScrollView.superview == nil) {
+            [self.view addSubview:hostScrollView];
+        }
+        [self updateHosts];
+    }
+    else {
+        [hostScrollView removeFromSuperview];
+    }
     [self.collectionView reloadData];
+    [self layoutTwilightChrome];
 }
 
 - (UICollectionViewCell *)collectionView:(UICollectionView *)collectionView cellForItemAtIndexPath:(NSIndexPath *)indexPath {
@@ -1402,27 +1429,21 @@ static NSMutableSet* hostList;
     
     TemporaryApp* app = _sortedAppList[indexPath.row];
     UIAppView* appView = [[UIAppView alloc] initWithApp:app cache:_boxArtCache andCallback:self];
+    appView.frame = cell.bounds;
+    appView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     
-    if (appView.bounds.size.width > 10.0) {
-        CGFloat scale = cell.bounds.size.width / appView.bounds.size.width;
-        [appView setCenter:CGPointMake(appView.bounds.size.width / 2 * scale, appView.bounds.size.height / 2 * scale)];
-        appView.transform = CGAffineTransformMakeScale(scale, scale);
+    for (UIView *subview in [cell.subviews copy]) {
+        if ([subview isKindOfClass:[UIAppView class]]) {
+            [subview removeFromSuperview];
+        }
     }
-    
-    [cell.subviews.firstObject removeFromSuperview]; // Remove a view that was previously added
+    cell.backgroundColor = [UIColor clearColor];
+    cell.contentView.backgroundColor = [UIColor clearColor];
+    cell.layer.shadowOpacity = 0;
+    cell.layer.borderWidth = 0;
     [cell addSubview:appView];
     
-    // Shadow opacity is controlled inside UIAppView based on whether the app
-    // is hidden or not during the update cycle.
-    UIBezierPath *shadowPath = [UIBezierPath bezierPathWithRect:cell.bounds];
-    cell.layer.masksToBounds = NO;
-    cell.layer.shadowColor = [UIColor blackColor].CGColor;
-    cell.layer.shadowOffset = CGSizeMake(1.0f, 5.0f);
-    cell.layer.shadowPath = shadowPath.CGPath;
-    
 #if !TARGET_OS_TV
-    cell.layer.borderWidth = 1;
-    cell.layer.borderColor = [[UIColor colorWithRed:0 green:0 blue:0 alpha:0.3f] CGColor];
     cell.exclusiveTouch = YES;
 #endif
 
@@ -1481,14 +1502,428 @@ static NSMutableSet* hostList;
 }
 #endif
 
-- (void)didUpdateFocusInContext:(UIFocusUpdateContext *)context withAnimationCoordinator:(UIFocusAnimationCoordinator *)coordinator {
-    
-#if !TARGET_OS_TV
-    if (context.nextFocusedView != nil) {
-        [context.nextFocusedView setAlpha:0.8];
-    }
-    [context.previouslyFocusedView setAlpha:1.0];
+- (CGSize)collectionView:(UICollectionView *)collectionView layout:(UICollectionViewLayout *)collectionViewLayout sizeForItemAtIndexPath:(NSIndexPath *)indexPath {
+    return [UIAppView preferredSize];
+}
+
+- (CGFloat)collectionView:(UICollectionView *)collectionView layout:(UICollectionViewLayout *)collectionViewLayout minimumLineSpacingForSectionAtIndex:(NSInteger)section {
+#if TARGET_OS_TV
+    return 40;
+#else
+    return 16;
 #endif
+}
+
+- (CGFloat)collectionView:(UICollectionView *)collectionView layout:(UICollectionViewLayout *)collectionViewLayout minimumInteritemSpacingForSectionAtIndex:(NSInteger)section {
+#if TARGET_OS_TV
+    return 36;
+#else
+    return 16;
+#endif
+}
+
+- (UIEdgeInsets)collectionView:(UICollectionView *)collectionView layout:(UICollectionViewLayout *)collectionViewLayout insetForSectionAtIndex:(NSInteger)section {
+    CGFloat leading = [self libraryLeadingInset];
+    return UIEdgeInsetsMake(8, leading, 24, 20);
+}
+
+- (CGSize)collectionView:(UICollectionView *)collectionView layout:(UICollectionViewLayout *)collectionViewLayout referenceSizeForHeaderInSection:(NSInteger)section {
+    if (_selectedHost == nil) {
+        return CGSizeZero;
+    }
+#if TARGET_OS_TV
+    return CGSizeZero;
+#else
+    CGFloat width = collectionView.bounds.size.width;
+    CGFloat height = 0;
+    if ([self twilightUsesHostSidebar]) {
+        height += 80;
+    }
+    if (_desktopApp != nil) {
+        CGFloat textWidth = width - [self libraryLeadingInset] - 20;
+        height += textWidth < 460 ? 226 : 164;
+    }
+    return CGSizeMake(width, height);
+#endif
+}
+
+- (UICollectionReusableView *)collectionView:(UICollectionView *)collectionView viewForSupplementaryElementOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath {
+    TwilightLibraryHeader *header = [collectionView dequeueReusableSupplementaryViewOfKind:kind withReuseIdentifier:@"TwilightLibraryHeader" forIndexPath:indexPath];
+    NSString *hostName = nil;
+    NSString *subtitle = nil;
+    if ([self twilightUsesHostSidebar] && _selectedHost != nil) {
+        hostName = _selectedHost.name;
+        subtitle = [self librarySubtitleForHost:_selectedHost];
+    }
+    NSString *desktopName = nil;
+    NSString *desktopHint = nil;
+    UIImage *art = nil;
+    BOOL running = NO;
+    if (_desktopApp != nil) {
+        desktopName = @"Desktop";
+        desktopHint = @"Stream the host display.";
+        art = [_boxArtCache objectForKey:_desktopApp];
+        running = _desktopApp.host.currentGame.length > 0 && [_desktopApp.id isEqualToString:_desktopApp.host.currentGame];
+    }
+    __weak MainFrameViewController *weakSelf = self;
+    TemporaryApp *desktop = _desktopApp;
+    [header configureWithHostName:hostName
+                         subtitle:subtitle
+                      desktopName:desktopName
+                      desktopHint:desktopHint
+                              art:art
+                          running:running
+                     leadingInset:[self libraryLeadingInset]
+                           stream:^{
+        [weakSelf appClicked:desktop view:weakSelf.view];
+    }
+                             quit:^{
+        TemporaryApp *runningApp = [weakSelf findRunningApp:desktop.host];
+        if (runningApp != nil) {
+            [weakSelf quitRunningApp:runningApp thenStream:runningApp];
+        }
+    }];
+    return header;
+}
+
+- (CGFloat)libraryLeadingInset {
+    if ([self twilightUsesHostSidebar]) {
+        return 16 + 280 + 16;
+    }
+    return 20;
+}
+
+- (NSString *)librarySubtitleForHost:(TemporaryHost *)host {
+    NSString *state = @"Offline";
+    if (host.state == StateUnknown) {
+        state = @"Looking…";
+    }
+    else if (host.state == StateOnline && host.pairState == PairStatePaired) {
+        state = @"Ready to stream";
+    }
+    else if (host.state == StateOnline) {
+        state = @"Online, not paired";
+    }
+    TemporarySettings *settings = [[[DataManager alloc] init] getSettings];
+    return [NSString stringWithFormat:@"%@  ·  %d×%d  ·  %@ FPS",
+            state,
+            settings.width.intValue,
+            settings.height.intValue,
+            settings.framerate];
+}
+
+- (void)installEmptyState {
+    _emptyState = [[UIView alloc] initWithFrame:self.collectionView.bounds];
+    _emptyState.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    _emptySymbol = [[UIImageView alloc] initWithImage:[TwilightTheme symbolNamed:@"moon.stars" pointSize:36]];
+    if (_emptySymbol.image == nil) {
+        _emptySymbol.image = [TwilightTheme symbolNamed:@"moon" pointSize:36];
+    }
+    _emptySymbol.tintColor = [TwilightTheme accent];
+    _emptySymbol.contentMode = UIViewContentModeScaleAspectFit;
+    _emptyTitle = [[UILabel alloc] init];
+    _emptyTitle.font = [TwilightTheme fontForStyle:UIFontTextStyleTitle1 weight:UIFontWeightSemibold];
+    _emptyTitle.adjustsFontForContentSizeCategory = YES;
+    _emptyTitle.textColor = [TwilightTheme ink];
+    _emptyTitle.textAlignment = NSTextAlignmentCenter;
+    _emptyDetail = [[UILabel alloc] init];
+    _emptyDetail.font = [TwilightTheme fontForStyle:UIFontTextStyleSubheadline weight:UIFontWeightRegular];
+    _emptyDetail.adjustsFontForContentSizeCategory = YES;
+    _emptyDetail.textColor = [TwilightTheme secondary];
+    _emptyDetail.textAlignment = NSTextAlignmentCenter;
+    _emptyDetail.numberOfLines = 0;
+    [_emptyState addSubview:_emptySymbol];
+    [_emptyState addSubview:_emptyTitle];
+    [_emptyState addSubview:_emptyDetail];
+    self.collectionView.backgroundView = _emptyState;
+}
+
+- (void)layoutEmptyState {
+    if (_emptyState == nil) {
+        return;
+    }
+    if (hostList == nil) {
+        _emptyState.hidden = YES;
+        return;
+    }
+    NSUInteger hosts = 0;
+    @synchronized (hostList) {
+        hosts = hostList.count;
+    }
+    BOOL sidebar = [self twilightUsesHostSidebar];
+    BOOL showAdd = _selectedHost == nil && hosts == 0;
+    BOOL showSelect = sidebar && _selectedHost == nil && hosts > 0;
+    _emptyState.hidden = !(showAdd || showSelect);
+    if (showSelect) {
+        _emptyTitle.text = @"Select a host";
+        _emptyDetail.text = @"Choose a computer to see its apps.";
+    }
+    else {
+        _emptyTitle.text = @"Add a computer";
+        _emptyDetail.text = @"Twilight is looking on your local network. You can also add a host by address.";
+    }
+    CGFloat leading = sidebar ? [self libraryLeadingInset] : 0;
+    CGFloat areaWidth = MAX(0, self.collectionView.bounds.size.width - leading);
+    CGFloat centerX = leading + areaWidth / 2.0;
+    CGFloat centerY = self.collectionView.bounds.size.height / 2.0;
+    _emptySymbol.frame = CGRectMake(centerX - 18, centerY - 90, 36, 36);
+    _emptyTitle.frame = CGRectMake(leading + 24, centerY - 40, areaWidth - 48, 36);
+    _emptyDetail.frame = CGRectMake(leading + 32, centerY + 4, areaWidth - 64, 72);
+}
+
+- (void)layoutHostRows {
+#if TARGET_OS_TV
+    return;
+#else
+    CGFloat width = hostScrollView.bounds.size.width;
+    if (width < 1) {
+        return;
+    }
+    CGFloat y = 8;
+    CGFloat pad = 8;
+    NSMutableArray<UIComputerView *> *rows = [NSMutableArray array];
+    UIComputerView *addRow = nil;
+    for (UIView *subview in hostScrollView.subviews) {
+        if (![subview isKindOfClass:[UIComputerView class]]) {
+            continue;
+        }
+        UIComputerView *row = (UIComputerView *)subview;
+        if (addRow == nil && [row isAddHostButton]) {
+            addRow = row;
+            continue;
+        }
+        [rows addObject:row];
+    }
+    for (UIComputerView *row in rows) {
+        row.frame = CGRectMake(pad, y, width - pad * 2, 56);
+        y += 60;
+    }
+    UILabel *emptyHosts = (UILabel *)[hostScrollView viewWithTag:4402];
+    if (rows.count == 0 && [self twilightUsesHostSidebar]) {
+        if (emptyHosts == nil || ![emptyHosts isKindOfClass:[UILabel class]]) {
+            emptyHosts = [[UILabel alloc] init];
+            emptyHosts.tag = 4402;
+            emptyHosts.text = @"No hosts yet";
+            emptyHosts.textAlignment = NSTextAlignmentCenter;
+            emptyHosts.textColor = [TwilightTheme secondary];
+            emptyHosts.font = [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightRegular];
+            [hostScrollView addSubview:emptyHosts];
+        }
+        emptyHosts.hidden = NO;
+        emptyHosts.frame = CGRectMake(pad, 28, width - pad * 2, 24);
+    }
+    else {
+        emptyHosts.hidden = YES;
+    }
+    CGFloat addY = y + 8;
+    if ([self twilightUsesHostSidebar] && addY < hostScrollView.bounds.size.height - 56) {
+        addY = hostScrollView.bounds.size.height - 52;
+    }
+    else if (rows.count == 0) {
+        addY = MAX(8, hostScrollView.bounds.size.height - 56);
+    }
+    if (addRow != nil) {
+        addRow.frame = CGRectMake(pad, addY, width - pad * 2, 40);
+        y = CGRectGetMaxY(addRow.frame) + 12;
+    }
+    hostScrollView.contentSize = CGSizeMake(width, MAX(y, hostScrollView.bounds.size.height + 1));
+#endif
+}
+
+- (void)layoutTwilightChrome {
+    self.collectionView.backgroundColor = [TwilightTheme background];
+    CGFloat top = self.view.safeAreaInsets.top;
+    CGFloat bottom = self.view.safeAreaInsets.bottom;
+    CGFloat height = self.view.bounds.size.height;
+    CGFloat width = self.view.bounds.size.width;
+#if TARGET_OS_TV
+    hostScrollView.backgroundColor = [UIColor clearColor];
+    hostScrollView.frame = CGRectMake(0, top, width, MAX(220, (height - top) / 2.0));
+    for (UIView *subview in hostScrollView.subviews) {
+        if ([subview isKindOfClass:[UIComputerView class]]) {
+            CGPoint center = subview.center;
+            center.y = hostScrollView.bounds.size.height / 2.0;
+            subview.center = center;
+        }
+    }
+    [self layoutEmptyState];
+    return;
+#endif
+    if ([self twilightUsesHostSidebar]) {
+        hostScrollView.backgroundColor = [TwilightTheme sidebar];
+        hostScrollView.layer.cornerRadius = 20;
+        hostScrollView.clipsToBounds = YES;
+        [TwilightTheme applyBorderToLayer:hostScrollView.layer width:1 traitCollection:self.traitCollection];
+        hostScrollView.frame = CGRectMake(16, top + 8, 280, MAX(120, height - top - bottom - 24));
+        if (_selectedHost != nil && hostScrollView.superview == nil) {
+            [self.view addSubview:hostScrollView];
+        }
+    }
+    else if (_selectedHost == nil) {
+        hostScrollView.backgroundColor = [UIColor clearColor];
+        hostScrollView.layer.cornerRadius = 0;
+        hostScrollView.layer.borderWidth = 0;
+        hostScrollView.frame = CGRectMake(0, top, width, MAX(0, height - top - bottom));
+    }
+    [self layoutHostRows];
+    [self layoutEmptyState];
+    if (hostScrollView.superview != nil) {
+        [self.view bringSubviewToFront:hostScrollView];
+    }
+    UIView *screenshotCover = [self.view viewWithTag:7701];
+    if (screenshotCover != nil) {
+        [self.view bringSubviewToFront:screenshotCover];
+    }
+    if (hostScrollView.superview != nil && (_selectedHost == nil || [self twilightUsesHostSidebar])) {
+        CGRect pinned = hostScrollView.frame;
+        pinned.origin.y = self.collectionView.contentOffset.y + top + ([self twilightUsesHostSidebar] ? 8 : 0);
+        hostScrollView.frame = pinned;
+    }
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self layoutTwilightChrome];
+}
+
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    if (scrollView != self.collectionView || hostScrollView.superview == nil) {
+        return;
+    }
+    if (_selectedHost != nil && ![self twilightUsesHostSidebar]) {
+        return;
+    }
+    CGRect pinned = hostScrollView.frame;
+    pinned.origin.y = scrollView.contentOffset.y + self.view.safeAreaInsets.top + ([self twilightUsesHostSidebar] ? 8 : 0);
+    hostScrollView.frame = pinned;
+    [self.view bringSubviewToFront:hostScrollView];
+}
+
+- (void)applyScreenshotFixtureIfRequested {
+#if DEBUG && !TARGET_OS_TV
+    const char *mode = getenv("TWILIGHT_SCREENSHOT");
+    if (mode == NULL) {
+        return;
+    }
+    NSString *which = [NSString stringWithUTF8String:mode];
+    _screenshotFixture = YES;
+    [_discMan stopDiscovery];
+    if ([which isEqualToString:@"library"]) {
+        [self installScreenshotLibrary];
+    }
+    else if ([which isEqualToString:@"settings"]) {
+        [[self revealViewController] revealToggle:self];
+    }
+    else if ([which isEqualToString:@"loading"]) {
+        [self installScreenshotLoadingCard];
+    }
+    else {
+        [self updateHosts];
+        [self layoutEmptyState];
+    }
+#endif
+}
+
+- (void)installScreenshotLibrary {
+    TemporaryHost *host = [[TemporaryHost alloc] init];
+    host.name = @"Living Room";
+    host.uuid = @"screenshot-host";
+    host.state = StateOnline;
+    host.pairState = PairStatePaired;
+    host.activeAddress = @"192.0.2.10";
+    host.currentGame = @"0";
+
+    TemporaryApp *desktop = [[TemporaryApp alloc] init];
+    desktop.id = @"desktop";
+    desktop.name = @"Desktop";
+    desktop.host = host;
+
+    TemporaryApp *game = [[TemporaryApp alloc] init];
+    game.id = @"example";
+    game.name = @"Example";
+    game.host = host;
+
+    host.appList = [NSSet setWithObjects:desktop, game, nil];
+    @synchronized (hostList) {
+        [hostList removeAllObjects];
+        [hostList addObject:host];
+    }
+    _selectedHost = host;
+    [self enableUpButton];
+    [self updateTitle];
+    [self updateAppsForHost:host];
+}
+
+- (void)installScreenshotLoadingCard {
+    UIView *cover = [[UIView alloc] initWithFrame:self.view.bounds];
+    cover.tag = 7701;
+    cover.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    cover.backgroundColor = [TwilightTheme background];
+    TwilightLaunchCard *card = [TwilightLaunchCard cardWithStage:@"Starting Desktop" hint:@"Connecting to the host…"];
+    CGSize size = [card sizeThatFits:CGSizeMake(self.view.bounds.size.width - 64, 200)];
+    card.bounds = (CGRect){CGPointZero, size};
+    card.center = CGPointMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds));
+    card.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
+    [cover addSubview:card];
+    [self.view addSubview:cover];
+}
+
+- (void)quitRunningApp:(TemporaryApp *)currentApp thenStream:(TemporaryApp *)app {
+    if (currentApp == nil) {
+        return;
+    }
+    Log(LOG_I, @"Quitting application: %@", currentApp.name);
+    [self showLoadingFrame: ^{
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            HttpManager* hMan = [[HttpManager alloc] initWithHost:currentApp.host];
+            HttpResponse* quitResponse = [[HttpResponse alloc] init];
+            HttpRequest* quitRequest = [HttpRequest requestForResponse: quitResponse withUrlRequest:[hMan newQuitAppRequest]];
+
+            [self->_discMan pauseDiscoveryForHost:currentApp.host];
+            [hMan executeRequestSynchronously:quitRequest];
+            if (quitResponse.statusCode == 200) {
+                ServerInfoResponse* serverInfoResp = [[ServerInfoResponse alloc] init];
+                [hMan executeRequestSynchronously:[HttpRequest requestForResponse:serverInfoResp withUrlRequest:[hMan newServerInfoRequest:false]
+                                                                                            fallbackError:401 fallbackRequest:[hMan newHttpServerInfoRequest]]];
+                if (![serverInfoResp isStatusOk] || [[serverInfoResp getStringTag:@"state"] hasSuffix:@"_SERVER_BUSY"]) {
+                    quitResponse.statusCode = 599;
+                }
+                else if ([serverInfoResp isStatusOk]) {
+                    [serverInfoResp populateHost:currentApp.host];
+                }
+            }
+            [self->_discMan resumeDiscoveryForHost:currentApp.host];
+
+            if (quitResponse.statusCode != 200) {
+                UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"Quitting App Failed"
+                                                            message:@"Failed to quit app. If this app was started by "
+                                                 "another device, you'll need to quit from that device."
+                                                     preferredStyle:UIAlertControllerStyleAlert];
+                [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self updateAppsForHost:currentApp.host];
+                    [self hideLoadingFrame: ^{
+                        [[self activeViewController] presentViewController:alert animated:YES completion:nil];
+                    }];
+                });
+            }
+            else {
+                currentApp.host.currentGame = @"0";
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (app != nil && ![app.id isEqualToString:currentApp.id]) {
+                        [self prepareToStreamApp:app];
+                        [self hideLoadingFrame: ^{
+                            [self performSegueWithIdentifier:@"createStreamFrame" sender:nil];
+                        }];
+                    }
+                    else {
+                        [self hideLoadingFrame:nil];
+                        [self updateAppsForHost:currentApp.host];
+                    }
+                });
+            }
+        });
+    }];
 }
 
 @end
