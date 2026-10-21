@@ -36,6 +36,12 @@
 // it will return the statusBar height if view fully overlaps the statusBar, otherwise returns 0.0f
 static CGFloat statusBarAdjustment( UIView* view )
 {
+    // Safe area already includes the status bar and Dynamic Island. Adding
+    // statusBarFrame on top of that leaves an empty band at the top.
+    if (@available(iOS 11.0, *)) {
+        return 0.0f;
+    }
+
     CGFloat adjustment = 0.0f;
     UIApplication *app = [UIApplication sharedApplication];
     UIWindow *keyWindow = [AppDelegate currentWindow];

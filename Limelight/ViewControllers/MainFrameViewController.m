@@ -27,7 +27,6 @@
 #import "IdManager.h"
 #import "ConnectionHelper.h"
 
-#import "AboutViewController.h"
 #import "TwilightTheme.h"
 
 #include <stdlib.h>
@@ -957,12 +956,6 @@ static NSMutableSet* hostList;
     [_settingsButton setTarget:self];
     [_settingsButton setAction:@selector(openTvSettings:)];
 
-    UIBarButtonItem *licenseButton = [[UIBarButtonItem alloc] initWithTitle:@"License"
-                                                                        style:UIBarButtonItemStylePlain
-                                                                       target:self
-                                                                       action:@selector(showLicense:)];
-    self.navigationItem.rightBarButtonItem = licenseButton;
-    
     // Restore focus on the selected app on view controller pop navigation
     self.restoresFocusAfterTransition = NO;
     self.collectionView.remembersLastFocusedIndexPath = YES;
@@ -1055,11 +1048,6 @@ static NSMutableSet* hostList;
 - (void)openTvSettings:(id)sender
 {
     [[UIApplication sharedApplication] openURL:[NSURL URLWithString:UIApplicationOpenSettingsURLString] options:@{} completionHandler:nil];
-}
-
-- (void)showLicense:(id)sender
-{
-    [AboutViewController presentFrom:self];
 }
 #endif
 

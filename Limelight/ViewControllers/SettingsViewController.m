@@ -7,7 +7,6 @@
 //
 
 #import "SettingsViewController.h"
-#import "AboutViewController.h"
 #import "TemporarySettings.h"
 #import "DataManager.h"
 #import "StreamConfiguration.h"
@@ -307,7 +306,6 @@ BOOL isCustomResolution(CGSize res) {
                                                       below:quitAnchor];
         [_quitAppAfterSelector setSelectedSegmentIndex:currentSettings.quitAppAfter ? 1 : 0];
     }
-    [self addLicenseEntry];
     [self.btMouseSelector setSelectedSegmentIndex:currentSettings.btMouseSupport ? 1 : 0];
     [self.optimizeSettingsSelector setSelectedSegmentIndex:currentSettings.optimizeGames ? 1 : 0];
     [self.framePacingSelector setSelectedSegmentIndex:currentSettings.useFramePacing ? 1 : 0];
@@ -368,45 +366,6 @@ BOOL isCustomResolution(CGSize res) {
             return;
         }
     }
-}
-
-- (void)addLicenseEntry {
-    UIView *anchor = _quitAppAfterSelector;
-    if (anchor == nil) {
-        anchor = _microphoneSelector;
-    }
-    if (anchor == nil) {
-        anchor = _adaptiveBitrateSelector;
-    }
-    if (anchor == nil) {
-        anchor = self.statsOverlaySelector;
-    }
-    if (anchor == nil) {
-        anchor = self.bitrateSlider;
-    }
-
-    CGFloat y = CGRectGetMaxY(anchor.frame) + 28;
-    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(22, y, 420, 24)];
-    label.text = @"License";
-    label.font = [TwilightTheme fontForStyle:UIFontTextStyleHeadline weight:UIFontWeightSemibold];
-    label.adjustsFontForContentSizeCategory = YES;
-    label.textColor = [TwilightTheme ink];
-    [self.scrollView addSubview:label];
-
-    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
-    button.frame = CGRectMake(anchor.frame.origin.x, y + 30, MAX(anchor.frame.size.width, 280), 40);
-    button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-    [button setTitle:@"GNU GPL version 3" forState:UIControlStateNormal];
-    [button setTitleColor:[TwilightTheme accent] forState:UIControlStateNormal];
-    button.titleLabel.font = [TwilightTheme fontForStyle:UIFontTextStyleBody weight:UIFontWeightSemibold];
-    button.backgroundColor = [TwilightTheme fill];
-    button.layer.cornerRadius = 12;
-    [button addTarget:self action:@selector(showLicense) forControlEvents:UIControlEventTouchUpInside];
-    [self.scrollView addSubview:button];
-}
-
-- (void)showLicense {
-    [AboutViewController presentFrom:self];
 }
 
 - (void) touchModeChanged {
