@@ -376,6 +376,22 @@ jobs:
             echo "Wrote $file"
           }
 
+          # simctl ui has no orientation command on this runner. Rotate the
+          # already-running Simulator with the same shortcut the menu uses.
+          rotate_simulator() {
+            local keycode="$1"
+            osascript - "$keycode" <<'APPLESCRIPT' || true
+on run argv
+  tell application "Simulator" to activate
+  delay 0.4
+  tell application "System Events"
+    key code (item 1 of argv as integer) using command down
+  end tell
+end run
+APPLESCRIPT
+            sleep 2
+          }
+
           boot_device "Twilight iPhone" "$(cat /tmp/twilight-iphone-type)"
           iphone="$(cat /tmp/twilight-booted-udid)"
           shot "$iphone" "$before_app" light "" "$out/before-iphone-hosts-light.png"
@@ -384,9 +400,10 @@ jobs:
           shot "$iphone" "$after_app" dark hosts "$out/after-iphone-hosts-dark.png"
           shot "$iphone" "$after_app" light library "$out/after-iphone-library-light.png"
           shot "$iphone" "$after_app" dark library "$out/after-iphone-library-dark.png"
-          xcrun simctl ui "$iphone" orientation landscapeLeft || true
-          shot "$iphone" "$after_app" light library "$out/after-iphone-library-landscape-light.png"
-          xcrun simctl ui "$iphone" orientation portrait || true
+          rotate_simulator 123
+          xcrun simctl io "$iphone" screenshot "$out/after-iphone-library-landscape-light.png"
+          echo "Wrote $out/after-iphone-library-landscape-light.png"
+          rotate_simulator 124
           shot "$iphone" "$after_app" light settings "$out/after-iphone-settings-light.png"
           shot "$iphone" "$after_app" light loading "$out/after-iphone-loading-light.png"
           xcrun simctl shutdown "$iphone" || true
