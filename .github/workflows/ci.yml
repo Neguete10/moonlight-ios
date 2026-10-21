@@ -17,7 +17,9 @@ permissions:
 jobs:
   build:
     name: Build (iOS)
-    runs-on: macos-latest
+    # Public Intel image with Xcode 26.6. macos-latest is the arm64 pool that
+    # has not been acquiring a runner.
+    runs-on: macos-26-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -48,7 +50,7 @@ jobs:
     # Start this job only after iOS finishes. A matrix leg queued at the
     # same time was cancelled when the runner wait overlapped the first build.
     needs: [build]
-    runs-on: macos-latest
+    runs-on: macos-26-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -77,7 +79,7 @@ jobs:
   visionos:
     name: Build (visionOS simulator, non-blocking)
     needs: [build-tvos]
-    runs-on: macos-latest
+    runs-on: macos-26-intel
     continue-on-error: true
     steps:
       - name: Checkout
@@ -143,7 +145,7 @@ jobs:
   ios27-launch:
     name: Launch (iOS 27 simulator, if installed)
     needs: [visionos]
-    runs-on: macos-latest
+    runs-on: macos-26-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -271,7 +273,7 @@ jobs:
     name: UI screenshots (iOS Simulator)
     needs: [build, build-tvos, visionos, ios27-launch]
     if: ${{ always() && needs.build.result == 'success' && needs.build-tvos.result == 'success' }}
-    runs-on: macos-latest
+    runs-on: macos-26-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v7
