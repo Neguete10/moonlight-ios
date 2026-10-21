@@ -53,7 +53,7 @@
         <!--Settings View Controller-->
         <scene sceneID="tWo-uo-hHg">
             <objects>
-                <viewController id="BsV-3c-455" customClass="SettingsViewController" sceneMemberID="viewController">
+                <viewController id="BsV-3c-455" customClass="SettingsViewController" storyboardIdentifier="TwilightSettings" sceneMemberID="viewController">
                     <layoutGuides>
                         <viewControllerLayoutGuide type="top" id="ef6-uF-5Hh"/>
                         <viewControllerLayoutGuide type="bottom" id="XvO-F3-j4u"/>

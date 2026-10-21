@@ -219,6 +219,14 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
     return button;
 }
 
+@implementation TwilightTheme (Buttons)
+
++ (UIButton *)buttonWithTitle:(NSString *)title fill:(UIColor *)fill ink:(UIColor *)ink action:(TwilightAction)action {
+    return TwilightButton(title, fill, ink, action);
+}
+
+@end
+
 @implementation TwilightLaunchCard {
     UIImageView *_symbol;
     UILabel *_stage;
@@ -326,6 +334,9 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
 @implementation TwilightLibraryHeader {
     UILabel *_hostLabel;
     UILabel *_subtitleLabel;
+    TwilightBlockButton *_hostButton;
+    UIView *_pairCard;
+    TwilightBlockButton *_pairButton;
     UIView *_banner;
     UIImageView *_art;
     UILabel *_desktopTitle;
@@ -333,6 +344,7 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
     TwilightBlockButton *_streamButton;
     TwilightBlockButton *_quitButton;
     CGFloat _leading;
+    CGFloat _trailing;
     BOOL _hasDesktop;
     BOOL _running;
 }
@@ -362,6 +374,22 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
     _subtitleLabel.adjustsFontForContentSizeCategory = YES;
     _subtitleLabel.textColor = [TwilightTheme secondary];
     [self addSubview:_subtitleLabel];
+
+    _hostButton = TwilightButton(@"Host", [TwilightTheme fill], [TwilightTheme ink], nil);
+    _hostButton.layer.cornerRadius = 12;
+    [self addSubview:_hostButton];
+
+    _pairCard = [[UIView alloc] init];
+    _pairCard.backgroundColor = [TwilightTheme glass];
+    _pairCard.layer.cornerRadius = 18;
+    [self addSubview:_pairCard];
+    UILabel *pairTitle = [[UILabel alloc] initWithFrame:CGRectMake(16, 16, 280, 28)];
+    pairTitle.text = @"Pair to see apps";
+    pairTitle.font = [TwilightTheme fontForStyle:UIFontTextStyleTitle3 weight:UIFontWeightSemibold];
+    pairTitle.textColor = [TwilightTheme ink];
+    [_pairCard addSubview:pairTitle];
+    _pairButton = TwilightButton(@"Pair", [TwilightTheme accent], [TwilightTheme accentInk], nil);
+    [_pairCard addSubview:_pairButton];
 
     _banner = [[UIView alloc] init];
     _banner.backgroundColor = [TwilightTheme glass];
@@ -401,15 +429,23 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
                           art:(UIImage *)art
                       running:(BOOL)running
                  leadingInset:(CGFloat)leadingInset
+                trailingInset:(CGFloat)trailingInset
                        stream:(TwilightAction)stream
-                         quit:(TwilightAction)quit {
+                         quit:(TwilightAction)quit
+                         host:(TwilightAction)host
+                         pair:(TwilightAction)pair {
     _leading = leadingInset;
-    _hasDesktop = desktopName.length > 0;
+    _trailing = trailingInset > 0 ? trailingInset : 20;
+    _hasDesktop = desktopName.length > 0 && pair == nil;
     _running = running;
     _hostLabel.text = hostName;
     _subtitleLabel.text = subtitle;
     _hostLabel.hidden = hostName.length == 0;
     _subtitleLabel.hidden = subtitle.length == 0;
+    _hostButton.hidden = host == nil;
+    _hostButton.action = host;
+    _pairCard.hidden = pair == nil;
+    _pairButton.action = pair;
     _banner.hidden = !_hasDesktop;
     _desktopTitle.text = desktopName.length > 0 ? desktopName : @"Desktop";
     _desktopHint.text = desktopHint;
@@ -426,12 +462,22 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
     [super layoutSubviews];
     CGFloat width = self.bounds.size.width;
     CGFloat textX = _leading;
-    CGFloat textW = MAX(0, width - textX - 20);
+    CGFloat trailing = _trailing > 0 ? _trailing : 20;
+    CGFloat reserve = _hostButton.hidden ? 0 : 92;
+    CGFloat textW = MAX(0, width - textX - trailing - reserve);
     CGFloat y = 0;
     if (!_hostLabel.hidden) {
         _hostLabel.frame = CGRectMake(textX, 0, textW, 40);
         _subtitleLabel.frame = CGRectMake(textX, 42, textW, 22);
+        _hostButton.frame = CGRectMake(width - trailing - 84, 8, 84, 36);
+        [TwilightTheme applyBorderToLayer:_hostButton.layer width:1 traitCollection:self.traitCollection];
         y = 80;
+    }
+    if (!_pairCard.hidden) {
+        _pairCard.frame = CGRectMake(textX, y, MAX(0, width - textX - trailing), 104);
+        _pairButton.frame = CGRectMake(16, 56, 110, 36);
+        [TwilightTheme applyBorderToLayer:_pairCard.layer width:1 traitCollection:self.traitCollection];
+        return;
     }
     if (_banner.hidden) {
         return;

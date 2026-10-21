@@ -384,6 +384,9 @@ jobs:
           shot "$iphone" "$after_app" dark hosts "$out/after-iphone-hosts-dark.png"
           shot "$iphone" "$after_app" light library "$out/after-iphone-library-light.png"
           shot "$iphone" "$after_app" dark library "$out/after-iphone-library-dark.png"
+          xcrun simctl ui "$iphone" orientation landscapeLeft || true
+          shot "$iphone" "$after_app" light library "$out/after-iphone-library-landscape-light.png"
+          xcrun simctl ui "$iphone" orientation portrait || true
           shot "$iphone" "$after_app" light settings "$out/after-iphone-settings-light.png"
           shot "$iphone" "$after_app" light loading "$out/after-iphone-loading-light.png"
           xcrun simctl shutdown "$iphone" || true

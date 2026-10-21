@@ -39,6 +39,7 @@ typedef void (^TwilightAction)(void);
 
 + (void)applyToNavigationBar:(UINavigationBar *)bar;
 + (void)applyBorderToLayer:(CALayer *)layer width:(CGFloat)width traitCollection:(UITraitCollection *)traits;
++ (UIButton *)buttonWithTitle:(NSString *)title fill:(UIColor *)fill ink:(UIColor *)ink action:(nullable TwilightAction)action;
 
 @end
 
@@ -61,8 +62,11 @@ typedef void (^TwilightAction)(void);
                         art:(nullable UIImage *)art
                       running:(BOOL)running
                  leadingInset:(CGFloat)leadingInset
+                trailingInset:(CGFloat)trailingInset
                        stream:(nullable TwilightAction)stream
-                         quit:(nullable TwilightAction)quit;
+                         quit:(nullable TwilightAction)quit
+                         host:(nullable TwilightAction)host
+                         pair:(nullable TwilightAction)pair;
 
 @end
 

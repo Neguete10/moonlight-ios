@@ -77,7 +77,7 @@
         <!--Side Bar-->
         <scene sceneID="uYM-56-Ivb">
             <objects>
-                <viewController id="rYd-e6-cQU" userLabel="Side Bar" customClass="SettingsViewController" sceneMemberID="viewController">
+                <viewController id="rYd-e6-cQU" userLabel="Side Bar" customClass="SettingsViewController" storyboardIdentifier="TwilightSettings" sceneMemberID="viewController">
                     <layoutGuides>
                         <viewControllerLayoutGuide type="top" id="TeT-8j-xwM"/>
                         <viewControllerLayoutGuide type="bottom" id="HaZ-6S-ZpN"/>
