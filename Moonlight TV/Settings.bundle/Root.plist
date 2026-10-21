@@ -306,14 +306,6 @@
 			<key>DefaultValue</key>
 			<false/>
 		</dict>
-		<dict>
-			<key>Type</key>
-			<string>PSGroupSpecifier</string>
-			<key>Title</key>
-			<string>License</string>
-			<key>FooterText</key>
-			<string>Twilight is licensed under the GNU General Public License, version 3. The App Store Distribution Exception at the end of that license allows distribution through an app store when the source is also available under the GPL. The full license is on the License button of the main screen. Source code: https://github.com/Neguete10/moonlight-ios</string>
-		</dict>
 	</array>
 </dict>
 </plist>

@@ -8,15 +8,26 @@
 
 #import "LoadingFrameViewController.h"
 #import "AppDelegate.h"
+#import "TwilightTheme.h"
 
 @implementation LoadingFrameViewController {
     BOOL presented;
+    TwilightLaunchCard *_card;
 };
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    // center the loading spinner
-    self.loadingSpinner.center = CGPointMake(self.view.frame.size.width / 2, self.view.frame.size.height / 2);
+    self.view.backgroundColor = [TwilightTheme scrim];
+    self.loadingSpinner.hidden = YES;
+    _card = [TwilightLaunchCard cardWithStage:@"Loading…" hint:@""];
+    [self.view addSubview:_card];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    CGSize size = [_card sizeThatFits:CGSizeMake(self.view.bounds.size.width - 64, 200)];
+    _card.bounds = (CGRect){CGPointZero, size};
+    _card.center = CGPointMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds));
 }
 
 - (UIViewController*) activeViewController {

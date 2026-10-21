@@ -4,6 +4,7 @@
 //
 
 #import "AboutViewController.h"
+#import "TwilightTheme.h"
 
 static NSString * const kSourceRepositoryURL = @"https://github.com/Neguete10/moonlight-ios";
 
@@ -24,16 +25,14 @@ static NSString * const kSourceRepositoryURL = @"https://github.com/Neguete10/mo
     [super viewDidLoad];
 
     self.title = @"License";
-    self.view.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1.0];
-    if (@available(iOS 13.0, tvOS 13.0, *)) {
-        self.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
-    }
+    self.view.backgroundColor = [TwilightTheme background];
+    [TwilightTheme applyToNavigationBar:self.navigationController.navigationBar];
 
     UITextView *textView = [[UITextView alloc] initWithFrame:CGRectZero];
     textView.translatesAutoresizingMaskIntoConstraints = NO;
     textView.selectable = YES;
     textView.backgroundColor = [UIColor clearColor];
-    textView.textColor = [UIColor whiteColor];
+    textView.textColor = [TwilightTheme ink];
 #if !TARGET_OS_TV
     textView.editable = NO;
     textView.dataDetectorTypes = UIDataDetectorTypeLink;
