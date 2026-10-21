@@ -380,15 +380,9 @@ jobs:
           # already-running Simulator with the same shortcut the menu uses.
           rotate_simulator() {
             local keycode="$1"
-            osascript - "$keycode" <<'APPLESCRIPT' || true
-on run argv
-  tell application "Simulator" to activate
-  delay 0.4
-  tell application "System Events"
-    key code (item 1 of argv as integer) using command down
-  end tell
-end run
-APPLESCRIPT
+            osascript -e 'tell application "Simulator" to activate' \
+              -e 'delay 0.4' \
+              -e "tell application \"System Events\" to key code ${keycode} using command down" || true
             sleep 2
           }
 
