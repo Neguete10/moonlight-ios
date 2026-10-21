@@ -1849,15 +1849,19 @@ static NSMutableSet* hostList;
 
     __weak MainFrameViewController *weakSelf = self;
     _shellHostButton = [TwilightTheme buttonWithTitle:@"Add host" fill:[TwilightTheme fill] ink:[TwilightTheme ink] action:^{
+        MainFrameViewController *strongSelf = weakSelf;
+        if (strongSelf == nil) {
+            return;
+        }
         NSUInteger count = 0;
         @synchronized (hostList) {
             count = hostList.count;
         }
-        if (weakSelf->_selectedHost == nil && count == 0) {
-            [weakSelf addHostClicked];
+        if (strongSelf->_selectedHost == nil && count == 0) {
+            [strongSelf addHostClicked];
         }
         else {
-            [weakSelf presentHostSwitcher];
+            [strongSelf presentHostSwitcher];
         }
     }];
     _shellHostButton.layer.cornerRadius = 12;
@@ -2074,10 +2078,14 @@ static NSMutableSet* hostList;
         [weakSelf renameHost:host];
     }]);
     addRow([self managerButton:(_showHiddenApps ? @"Hide hidden apps" : @"Show hidden apps") symbol:@"eye" danger:NO action:^{
-        weakSelf->_showHiddenApps = !weakSelf->_showHiddenApps;
-        [weakSelf dismissOverlay];
-        if (weakSelf->_selectedHost == host) {
-            [weakSelf updateAppsForHost:host];
+        MainFrameViewController *strongSelf = weakSelf;
+        if (strongSelf == nil) {
+            return;
+        }
+        strongSelf->_showHiddenApps = !strongSelf->_showHiddenApps;
+        [strongSelf dismissOverlay];
+        if (strongSelf->_selectedHost == host) {
+            [strongSelf updateAppsForHost:host];
         }
     }]);
     addRow([self managerButton:@"Remove host" symbol:@"trash" danger:YES action:^{
