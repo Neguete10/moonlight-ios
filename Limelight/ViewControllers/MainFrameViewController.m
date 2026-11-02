@@ -1169,7 +1169,7 @@ static NSMutableSet* hostList;
     [self.navigationController setNavigationBarHidden:YES animated:NO];
     // Popping the stream does not always lay the grid out again. The bar
     // lives outside the collection view, so put it back before the first frame.
-    // The stream forced landscape. Allow portrait again and follow the phone.
+    // iPhone is landscape-only. Re-assert that after a stream or a cold launch.
     [Utils twilightRequestGeometryUpdateForViewController:self orientations:[Utils twilightLibraryOrientations]];
     [self restoreShellBar];
 #endif

@@ -408,51 +408,65 @@ jobs:
             echo "Wrote $file"
           }
 
-          # simctl ui has no orientation command on this runner. Rotate the
-          # already-running Simulator with the same shortcut the menu uses.
-          rotate_simulator() {
-            local keycode="$1"
-            osascript -e 'tell application "Simulator" to activate' \
-              -e 'delay 0.4' \
-              -e "tell application \"System Events\" to key code ${keycode} using command down" || true
+          # Rotate the simulated device. Keystroke rotation left the framebuffer
+          # in portrait, so landscape shots were sideways. simctl ui orientation
+          # changes the device orientation the screenshot buffer uses.
+          set_orientation() {
+            local udid="$1"
+            local orientation="$2"
+            echo "Setting $udid orientation to $orientation"
+            if ! xcrun simctl ui "$udid" orientation "$orientation"; then
+              echo "simctl ui orientation is unavailable. ui help:"
+              xcrun simctl help ui || true
+              exit 1
+            fi
             sleep 2
+          }
+
+          assert_orientation() {
+            local file="$1"
+            local expect="$2"
+            python3 -c 'import struct,sys; p=sys.argv[1]; expect=sys.argv[2]; d=open(p,"rb").read();
+w,h=struct.unpack(">II", d[16:24]); print("%s: %dx%d (want %s)"%(p,w,h,expect)); land=w>h;
+sys.exit(0 if (land if expect=="landscape" else not land) else 1)' "$file" "$expect"
           }
 
           boot_device "Twilight iPhone" "$(cat /tmp/twilight-iphone-type)"
           iphone="$(cat /tmp/twilight-booted-udid)"
+          # iPhone is landscape-only. Boot the device on its side before launch
+          # so the screenshot buffer matches the interface.
+          set_orientation "$iphone" landscapeLeft
           install_app "$iphone" "$before_app"
-          shot "$iphone" dark library "$out/before-iphone-library-portrait-dark.png"
-          shot "$iphone" dark settings "$out/before-iphone-settings-portrait-dark.png"
-          shot "$iphone" dark hosts "$out/before-iphone-hosts-portrait-dark.png"
-          rotate_simulator 124
           shot "$iphone" dark library "$out/before-iphone-library-landscape-dark.png"
           shot "$iphone" dark settings "$out/before-iphone-settings-landscape-dark.png"
-          rotate_simulator 123
+          assert_orientation "$out/before-iphone-library-landscape-dark.png" landscape
 
           install_app "$iphone" "$after_app"
           for mode in empty library hosts hostsheet settings resolution pairing addhost unpaired loading stream returnstream; do
-            shot "$iphone" dark "$mode" "$out/after-iphone-${mode}-portrait-dark.png"
-          done
-          shot "$iphone" light library "$out/after-iphone-library-portrait-light.png"
-          shot "$iphone" light settings "$out/after-iphone-settings-portrait-light.png"
-          rotate_simulator 124
-          for mode in empty library hosts hostsheet settings resolution pairing addhost unpaired loading stream returnstream; do
             shot "$iphone" dark "$mode" "$out/after-iphone-${mode}-landscape-dark.png"
+            assert_orientation "$out/after-iphone-${mode}-landscape-dark.png" landscape
           done
+          shot "$iphone" light library "$out/after-iphone-library-landscape-light.png"
+          shot "$iphone" light settings "$out/after-iphone-settings-landscape-light.png"
+          assert_orientation "$out/after-iphone-library-landscape-light.png" landscape
+          assert_orientation "$out/after-iphone-settings-landscape-light.png" landscape
           xcrun simctl shutdown "$iphone" || true
 
           boot_device "Twilight iPad" "$(cat /tmp/twilight-ipad-type)"
           ipad="$(cat /tmp/twilight-booted-udid)"
+          set_orientation "$ipad" portrait
           install_app "$ipad" "$before_app"
           shot "$ipad" dark library "$out/before-ipad-library-portrait-dark.png"
           shot "$ipad" dark settings "$out/before-ipad-settings-portrait-dark.png"
           install_app "$ipad" "$after_app"
           for mode in empty library hostsheet settings stream; do
             shot "$ipad" dark "$mode" "$out/after-ipad-${mode}-portrait-dark.png"
+            assert_orientation "$out/after-ipad-${mode}-portrait-dark.png" portrait
           done
-          rotate_simulator 124
+          set_orientation "$ipad" landscapeLeft
           for mode in empty library hostsheet settings stream; do
             shot "$ipad" dark "$mode" "$out/after-ipad-${mode}-landscape-dark.png"
+            assert_orientation "$out/after-ipad-${mode}-landscape-dark.png" landscape
           done
           xcrun simctl shutdown "$ipad" || true
 

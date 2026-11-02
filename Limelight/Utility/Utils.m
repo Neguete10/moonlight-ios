@@ -157,18 +157,15 @@ NSString *const deviceName = @"roth";
 }
 
 #if !TARGET_OS_TV
-+ (UIInterfaceOrientationMask)twilightStreamOrientations {
++ (UIInterfaceOrientationMask)twilightLibraryOrientations {
     if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
         return UIInterfaceOrientationMaskLandscape;
     }
     return UIInterfaceOrientationMaskAll;
 }
 
-+ (UIInterfaceOrientationMask)twilightLibraryOrientations {
-    if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
-        return UIInterfaceOrientationMaskPortrait | UIInterfaceOrientationMaskLandscape;
-    }
-    return UIInterfaceOrientationMaskAll;
++ (UIInterfaceOrientationMask)twilightStreamOrientations {
+    return [self twilightLibraryOrientations];
 }
 
 + (void)twilightRequestGeometryUpdateForViewController:(UIViewController *)viewController orientations:(UIInterfaceOrientationMask)orientations {

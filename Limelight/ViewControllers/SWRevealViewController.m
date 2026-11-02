@@ -698,7 +698,10 @@ const int FrontViewPositionNone = 0xff;
     if (child != nil && child != self) {
         return [child supportedInterfaceOrientations];
     }
-    return UIInterfaceOrientationMaskAllButUpsideDown;
+    if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
+        return UIInterfaceOrientationMaskLandscape;
+    }
+    return UIInterfaceOrientationMaskAll;
 }
 
 - (BOOL)shouldAutorotate {

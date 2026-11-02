@@ -12,6 +12,7 @@
 #import "StreamConfiguration.h"
 #import "Utils.h"
 #import "TwilightTheme.h"
+#import "Utils.h"
 
 #import <VideoToolbox/VideoToolbox.h>
 #import <AVFoundation/AVFoundation.h>
@@ -426,6 +427,16 @@ BOOL isCustomResolution(CGSize res) {
     
     return YES;
 }
+
+#if !TARGET_OS_TV
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return [Utils twilightLibraryOrientations];
+}
+
+- (BOOL)shouldAutorotate {
+    return YES;
+}
+#endif
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
