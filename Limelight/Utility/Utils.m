@@ -85,12 +85,8 @@ NSString *const deviceName = @"roth";
 #endif
 
 + (void) addHelpOptionToDialog:(UIAlertController*)dialog {
-#if !TARGET_OS_TV
-    // tvOS doesn't have a browser
-    [dialog addAction:[UIAlertAction actionWithTitle:@"Help" style:UIAlertActionStyleDefault handler:^(UIAlertAction* action){
-        [Utils launchUrl:@"https://github.com/moonlight-stream/moonlight-docs/wiki/Troubleshooting"];
-    }]];
-#endif
+    // Twilight does not attach a browser link. Callers still share this hook.
+    (void)dialog;
 }
 
 + (BOOL) parseAddressPortString:(NSString*)addressPort address:(NSRange*)address port:(NSRange*)port {

@@ -427,6 +427,16 @@ BOOL isCustomResolution(CGSize res) {
     return YES;
 }
 
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+#if DEBUG && !TARGET_OS_TV
+    const char *mode = getenv("TWILIGHT_SCREENSHOT");
+    if (mode != NULL && [[NSString stringWithUTF8String:mode] isEqualToString:@"resolution"] && self.presentedViewController == nil) {
+        [self promptCustomResolutionDialog];
+    }
+#endif
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
 
@@ -700,90 +710,111 @@ BOOL isCustomResolution(CGSize res) {
     }
 }
 
-- (void) promptCustomResolutionDialog {
-    UIAlertController *alertController = [UIAlertController alertControllerWithTitle:@"Enter Custom Resolution" message:nil preferredStyle:UIAlertControllerStyleAlert];
+- (int)maximumResolutionDimension {
+    int maxResolutionDimension = 4096;
+    if (@available(iOS 11.0, tvOS 11.0, *)) {
+        if (VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC)) {
+            maxResolutionDimension = 8192;
+        }
+    }
+    return maxResolutionDimension;
+}
 
+- (BOOL)positiveIntegerFromText:(NSString *)text value:(long *)value {
+    NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trimmed.length == 0 || value == NULL) {
+        return NO;
+    }
+    NSCharacterSet *nonDigits = [[NSCharacterSet decimalDigitCharacterSet] invertedSet];
+    if ([trimmed rangeOfCharacterFromSet:nonDigits].location != NSNotFound) {
+        return NO;
+    }
+    long parsed = (long)[trimmed longLongValue];
+    if (parsed <= 0) {
+        return NO;
+    }
+    *value = parsed;
+    return YES;
+}
+
+- (void)restoreResolutionSelection {
+    [self.resolutionSelector setSelectedSegmentIndex:_lastSelectedResolutionIndex];
+    [self.view setNeedsLayout];
+}
+
+- (void)applyCustomResolutionWidth:(long)width height:(long)height {
+    resolutionTable[RESOLUTION_TABLE_CUSTOM_INDEX] = CGSizeMake(width, height);
+    NSInteger customIndex = self.resolutionSelector.numberOfSegments - 1;
+    [self.resolutionSelector setSelectedSegmentIndex:customIndex];
+    _lastSelectedResolutionIndex = customIndex;
+    [self updateBitrate];
+    [self updateResolutionDisplayViewText];
+    [self.view setNeedsLayout];
+}
+
+- (void)promptCustomResolutionDialog {
+    if (self.presentedViewController != nil) {
+        return;
+    }
+    int maxDimension = [self maximumResolutionDimension];
+    UIAlertController *alertController = [UIAlertController alertControllerWithTitle:@"Custom resolution"
+                                                                             message:[NSString stringWithFormat:@"Width and height, from 256 to %d.", maxDimension]
+                                                                      preferredStyle:UIAlertControllerStyleAlert];
+
+    CGSize current = resolutionTable[RESOLUTION_TABLE_CUSTOM_INDEX];
+    if (current.width <= 0 || current.height <= 0) {
+        current = resolutionTable[[self.resolutionSelector selectedSegmentIndex]];
+    }
     [alertController addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"Video Width";
-        textField.clearButtonMode = UITextFieldViewModeAlways;
-        textField.borderStyle = UITextBorderStyleRoundedRect;
+        textField.placeholder = @"Width";
+        textField.clearButtonMode = UITextFieldViewModeWhileEditing;
         textField.keyboardType = UIKeyboardTypeNumberPad;
-        
-        if (resolutionTable[RESOLUTION_TABLE_CUSTOM_INDEX].width == 0) {
-            textField.text = @"";
-        }
-        else {
-            textField.text = [NSString stringWithFormat:@"%d", (int) resolutionTable[RESOLUTION_TABLE_CUSTOM_INDEX].width];
-        }
+        textField.text = current.width > 0 ? [NSString stringWithFormat:@"%d", (int)current.width] : @"";
+    }];
+    [alertController addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+        textField.placeholder = @"Height";
+        textField.clearButtonMode = UITextFieldViewModeWhileEditing;
+        textField.keyboardType = UIKeyboardTypeNumberPad;
+        textField.text = current.height > 0 ? [NSString stringWithFormat:@"%d", (int)current.height] : @"";
     }];
 
-    [alertController addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-        textField.placeholder = @"Video Height";
-        textField.clearButtonMode = UITextFieldViewModeAlways;
-        textField.borderStyle = UITextBorderStyleRoundedRect;
-        textField.keyboardType = UIKeyboardTypeNumberPad;
-        
-        if (resolutionTable[RESOLUTION_TABLE_CUSTOM_INDEX].height == 0) {
-            textField.text = @"";
-        }
-        else {
-            textField.text = [NSString stringWithFormat:@"%d", (int) resolutionTable[RESOLUTION_TABLE_CUSTOM_INDEX].height];
-        }
-    }];
-
-    [alertController addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        NSArray * textfields = alertController.textFields;
-        UITextField *widthField = textfields[0];
-        UITextField *heightField = textfields[1];
-        
-        long width = [widthField.text integerValue];
-        long height = [heightField.text integerValue];
-        if (width <= 0 || height <= 0) {
-            // Restore the previous selection
-            [self.resolutionSelector setSelectedSegmentIndex:self->_lastSelectedResolutionIndex];
+    __weak SettingsViewController *weakSelf = self;
+    [alertController addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
+        [weakSelf restoreResolutionSelection];
+    }]];
+    [alertController addAction:[UIAlertAction actionWithTitle:@"Use" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        SettingsViewController *strongSelf = weakSelf;
+        if (strongSelf == nil) {
             return;
         }
-        
-        // H.264 maximum
-        int maxResolutionDimension = 4096;
-        if (@available(iOS 11.0, tvOS 11.0, *)) {
-            if (VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC)) {
-                // HEVC maximum
-                maxResolutionDimension = 8192;
-            }
+        long width = 0;
+        long height = 0;
+        BOOL widthOK = [strongSelf positiveIntegerFromText:alertController.textFields[0].text value:&width];
+        BOOL heightOK = [strongSelf positiveIntegerFromText:alertController.textFields[1].text value:&height];
+        int limit = [strongSelf maximumResolutionDimension];
+        if (!widthOK || !heightOK || width < 256 || height < 256 || width > limit || height > limit) {
+            [strongSelf restoreResolutionSelection];
+            UIAlertController *invalid = [UIAlertController alertControllerWithTitle:@"Check the size"
+                                                                             message:[NSString stringWithFormat:@"Enter a whole number from 256 to %d for both width and height.", limit]
+                                                                      preferredStyle:UIAlertControllerStyleAlert];
+            [invalid addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+            [strongSelf presentViewController:invalid animated:YES completion:nil];
+            return;
         }
-        
-        // Cap to maximum valid dimensions
-        width = MIN(width, maxResolutionDimension);
-        height = MIN(height, maxResolutionDimension);
-        
-        // Cap to minimum valid dimensions
-        width = MAX(width, 256);
-        height = MAX(height, 256);
-
-        resolutionTable[RESOLUTION_TABLE_CUSTOM_INDEX] = CGSizeMake(width, height);
-        [self updateBitrate];
-        [self updateResolutionDisplayViewText];
-        self->_lastSelectedResolutionIndex = [self.resolutionSelector selectedSegmentIndex];
-        
-        UIAlertController *alertController = [UIAlertController alertControllerWithTitle:@"Custom Resolution Selected" message: @"Custom resolutions are not officially supported by GeForce Experience, so it will not set your host display resolution. You will need to set it manually while in game.\n\nResolutions that are not supported by your client or host PC may cause streaming errors." preferredStyle:UIAlertControllerStyleAlert];
-        [alertController addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-        [self presentViewController:alertController animated:YES completion:nil];
-    }]];
-
-    [alertController addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
-        // Restore the previous selection
-        [self.resolutionSelector setSelectedSegmentIndex:self->_lastSelectedResolutionIndex];
+        [strongSelf applyCustomResolutionWidth:width height:height];
+        UIAlertController *confirmed = [UIAlertController alertControllerWithTitle:@"Custom resolution"
+                                                                           message:[NSString stringWithFormat:@"The stream will request %ld × %ld. Twilight does not change the host display. Set the same size in the game or in Sunshine if the desktop should match.", width, height]
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
+        [confirmed addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        [strongSelf presentViewController:confirmed animated:YES completion:nil];
     }]];
 
     [self presentViewController:alertController animated:YES completion:nil];
 }
 
 - (void)resolutionDisplayViewTapped:(UITapGestureRecognizer *)sender {
-    NSURL *url = [NSURL URLWithString:@"https://moonlight-stream.org/custom-resolution"];
-    if ([[UIApplication sharedApplication] canOpenURL:url]) {
-        [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
-    }
+    (void)sender;
+    [self promptCustomResolutionDialog];
 }
 
 - (void) updateResolutionDisplayViewText {

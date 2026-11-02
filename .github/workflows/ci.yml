@@ -430,13 +430,13 @@ jobs:
           rotate_simulator 123
 
           install_app "$iphone" "$after_app"
-          for mode in empty library hosts hostsheet settings pairing addhost unpaired loading stream; do
+          for mode in empty library hosts hostsheet settings resolution pairing addhost unpaired loading stream returnstream; do
             shot "$iphone" dark "$mode" "$out/after-iphone-${mode}-portrait-dark.png"
           done
           shot "$iphone" light library "$out/after-iphone-library-portrait-light.png"
           shot "$iphone" light settings "$out/after-iphone-settings-portrait-light.png"
           rotate_simulator 124
-          for mode in empty library hosts hostsheet settings pairing addhost unpaired loading stream; do
+          for mode in empty library hosts hostsheet settings resolution pairing addhost unpaired loading stream returnstream; do
             shot "$iphone" dark "$mode" "$out/after-iphone-${mode}-landscape-dark.png"
           done
           xcrun simctl shutdown "$iphone" || true

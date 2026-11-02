@@ -98,7 +98,8 @@
     if (mode == NULL) {
         return NO;
     }
-    return [[NSString stringWithUTF8String:mode] isEqualToString:@"stream"];
+    NSString *which = [NSString stringWithUTF8String:mode];
+    return [which isEqualToString:@"stream"] || [which isEqualToString:@"returnstream"];
 #else
     return NO;
 #endif
@@ -120,7 +121,13 @@
     [self.navigationController setNavigationBarHidden:YES animated:YES];
 
     if ([self screenshotStreamFixture]) {
-        [self installScreenshotStreamChrome];
+        const char *mode = getenv("TWILIGHT_SCREENSHOT");
+        if (mode != NULL && [[NSString stringWithUTF8String:mode] isEqualToString:@"stream"]) {
+            [self installScreenshotStreamChrome];
+        }
+        else {
+            self.view.backgroundColor = [TwilightTheme background];
+        }
         return;
     }
     
@@ -734,7 +741,7 @@
                 case ML_ERROR_UNEXPECTED_EARLY_TERMINATION:
                 case ML_ERROR_PROTECTED_CONTENT:
                     title = @"Connection Error";
-                    message = @"Something went wrong on your host PC when starting the stream.\n\nMake sure you don't have any DRM-protected content open on your host PC. You can also try restarting your host PC.\n\nIf the issue persists, try reinstalling your GPU drivers and GeForce Experience.";
+                    message = @"Something went wrong on your host PC when starting the stream.\n\nMake sure you don't have any DRM-protected content open on the host. You can also try restarting the PC.\n\nIf it keeps happening, restart Sunshine and update the GPU driver.";
                     break;
                     
                 case ML_ERROR_FRAME_CONVERSION:

@@ -566,13 +566,6 @@ static NSMutableSet* hostList;
             [self hostClicked:host view:view];
         }]];
         
-#if !TARGET_OS_TV
-        if (host.isNvidiaServerSoftware) {
-            [longClickAlert addAction:[UIAlertAction actionWithTitle:@"NVIDIA GameStream End-of-Service" style:UIAlertActionStyleDefault handler:^(UIAlertAction* action){
-                [Utils launchUrl:@"https://github.com/moonlight-stream/moonlight-docs/wiki/NVIDIA-GameStream-End-Of-Service-Announcement-FAQ"];
-            }]];
-        }
-#endif
     }
     [longClickAlert addAction:[UIAlertAction actionWithTitle:@"Test Network" style:UIAlertActionStyleDefault handler:^(UIAlertAction* action) {
         [self showLoadingFrame:^{
@@ -584,7 +577,7 @@ static NSMutableSet* hostList;
                         NSString* message;
                         
                         if (portTestResult == 0) {
-                            message = @"This network does not appear to be blocking Twilight. If you still have trouble connecting, check your PC's firewall settings.\n\nVisit the Moonlight Setup Guide on GitHub for additional setup help and troubleshooting steps.";
+                            message = @"This network does not appear to be blocking Twilight. If you still have trouble connecting, check your PC's firewall settings.";
                         }
                         else if (portTestResult == ML_TEST_RESULT_INCONCLUSIVE) {
                             message = @"The network test could not be performed because none of the connection testing servers were reachable. Check your Internet connection or try again later.";
@@ -603,16 +596,6 @@ static NSMutableSet* hostList;
             });
         }];
     }]];
-#if !TARGET_OS_TV
-    if (host.state != StateOnline) {
-        [longClickAlert addAction:[UIAlertAction actionWithTitle:@"NVIDIA GameStream End-of-Service" style:UIAlertActionStyleDefault handler:^(UIAlertAction* action){
-            [Utils launchUrl:@"https://github.com/moonlight-stream/moonlight-docs/wiki/NVIDIA-GameStream-End-Of-Service-Announcement-FAQ"];
-        }]];
-        [longClickAlert addAction:[UIAlertAction actionWithTitle:@"Connection Help" style:UIAlertActionStyleDefault handler:^(UIAlertAction* action){
-            [Utils launchUrl:@"https://github.com/moonlight-stream/moonlight-docs/wiki/Troubleshooting"];
-        }]];
-    }
-#endif
     [longClickAlert addAction:[UIAlertAction actionWithTitle:@"Remove Host" style:UIAlertActionStyleDestructive handler:^(UIAlertAction* action) {
         [self->_discMan removeHostFromDiscovery:host];
         DataManager* dataMan = [[DataManager alloc] init];
@@ -1157,6 +1140,11 @@ static NSMutableSet* hostList;
     
     // Check for a pending shortcut action when returning to foreground
     [self handlePendingShortcutAction];
+#if !TARGET_OS_TV
+    if (self.view.window != nil) {
+        [self restoreShellBar];
+    }
+#endif
 }
 
 -(void)handleEnterBackground
@@ -1179,6 +1167,9 @@ static NSMutableSet* hostList;
     [TwilightTheme applyToNavigationBar:self.navigationController.navigationBar];
 #else
     [self.navigationController setNavigationBarHidden:YES animated:NO];
+    // Popping the stream does not always lay the grid out again. The bar
+    // lives outside the collection view, so put it back before the first frame.
+    [self restoreShellBar];
 #endif
     
     // Check for a pending shortcut action when appearing
@@ -1217,6 +1208,11 @@ static NSMutableSet* hostList;
     // under the status bar or the Dynamic Island.
     [self.navigationController setNavigationBarHidden:YES animated:NO];
     self.edgesForExtendedLayout = UIRectEdgeAll;
+    [self.transitionCoordinator animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+        if (!context.isCancelled) {
+            [self restoreShellBar];
+        }
+    }];
 #endif
     
     // We can get here on home press while streaming
@@ -1231,6 +1227,19 @@ static NSMutableSet* hostList;
     // view, so we won't get a return to active notification
     // for that which would normally fire beginForegroundRefresh.
     [self beginForegroundRefresh];
+}
+
+- (void)viewWillDisappear:(BOOL)animated
+{
+    [super viewWillDisappear:animated];
+#if !TARGET_OS_TV
+    // The bar is parented above the navigation content so a push/pop cannot
+    // drop it. Hide it while another controller covers this grid, including
+    // the stream, and show it again from viewDidAppear.
+    if (self.navigationController.topViewController != self) {
+        _shellBar.hidden = YES;
+    }
+#endif
 }
 
 - (void)viewDidDisappear:(BOOL)animated
@@ -1850,7 +1859,26 @@ static NSMutableSet* hostList;
 }
 
 - (UIView *)chromeContainer {
-    return self.view.superview != nil ? self.view.superview : self.view;
+    // The navigation view survives the push and pop of the stream. The
+    // collection view's immediate superview is a wrapper UIKit replaces,
+    // which is why the bar vanished until the next scroll.
+    if (self.navigationController.view != nil) {
+        return self.navigationController.view;
+    }
+    if (self.view.superview != nil) {
+        return self.view.superview;
+    }
+    return self.view;
+}
+
+- (void)restoreShellBar {
+    if (_shellBar == nil) {
+        return;
+    }
+    BOOL covered = self.navigationController != nil && self.navigationController.topViewController != self;
+    _shellBar.hidden = covered;
+    _shellBar.alpha = 1;
+    [self layoutTwilightChrome];
 }
 
 // The shell bar used to be a subview of the collection view, pinned with
@@ -1872,11 +1900,15 @@ static NSMutableSet* hostList;
         view.frame = visibleFrame;
         return;
     }
-    CGRect host = self.view.frame;
-    view.frame = CGRectMake(host.origin.x + visibleFrame.origin.x,
-                            host.origin.y + visibleFrame.origin.y,
-                            visibleFrame.size.width,
-                            visibleFrame.size.height);
+    if (self.view.window == nil) {
+        return;
+    }
+    // bounds.origin is the visible top of the scroll view. Convert that
+    // point so the bar stays pinned after the stream pop changes the wrapper.
+    CGPoint origin = [self.view convertPoint:CGPointMake(self.view.bounds.origin.x + visibleFrame.origin.x,
+                                                        self.view.bounds.origin.y + visibleFrame.origin.y)
+                                      toView:container];
+    view.frame = CGRectMake(origin.x, origin.y, visibleFrame.size.width, visibleFrame.size.height);
 }
 
 - (void)installShellBar {
@@ -1980,7 +2012,9 @@ static NSMutableSet* hostList;
             [(SettingsViewController *)root saveSettings];
         }
     }
-    [self dismissViewControllerAnimated:YES completion:nil];
+    [self dismissViewControllerAnimated:YES completion:^{
+        [self restoreShellBar];
+    }];
 }
 
 - (void)dismissOverlay {
@@ -2353,6 +2387,9 @@ static NSMutableSet* hostList;
         self.collectionView.automaticallyAdjustsScrollIndicatorInsets = NO;
     }
     if (_shellBar != nil && width > 1) {
+        BOOL covered = self.navigationController != nil && self.navigationController.topViewController != self;
+        _shellBar.hidden = covered;
+        _shellBar.alpha = 1;
         [self placeChromeView:_shellBar visibleFrame:CGRectMake(0, 0, width, barHeight)];
         UIImageView *mark = (UIImageView *)[_shellBar viewWithTag:1];
         UILabel *title = (UILabel *)[_shellBar viewWithTag:2];
@@ -2487,7 +2524,7 @@ static NSMutableSet* hostList;
     if ([which isEqualToString:@"library"]) {
         [self installScreenshotLibrary];
     }
-    else if ([which isEqualToString:@"settings"]) {
+    else if ([which isEqualToString:@"settings"] || [which isEqualToString:@"resolution"]) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [self showSettingsSheet];
         });
@@ -2551,7 +2588,7 @@ static NSMutableSet* hostList;
         [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
         [self presentViewController:alert animated:NO completion:nil];
     }
-    else if ([which isEqualToString:@"stream"]) {
+    else if ([which isEqualToString:@"stream"] || [which isEqualToString:@"returnstream"]) {
         StreamConfiguration *config = [[StreamConfiguration alloc] init];
         config.appName = @"Desktop";
         config.host = @"192.0.2.10";
@@ -2560,8 +2597,16 @@ static NSMutableSet* hostList;
         config.frameRate = 60;
         config.bitRate = 20000;
         _streamConfig = config;
+        BOOL popBack = [which isEqualToString:@"returnstream"];
         dispatch_async(dispatch_get_main_queue(), ^{
             [self performSegueWithIdentifier:@"createStreamFrame" sender:nil];
+            if (!popBack) {
+                return;
+            }
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [self.navigationController popToRootViewControllerAnimated:NO];
+                [self restoreShellBar];
+            });
         });
     }
     else if ([which isEqualToString:@"empty"]) {

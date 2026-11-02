@@ -237,6 +237,7 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
     UILabel *_hint;
     UIView *_track;
     UIView *_bar;
+    CGFloat _animatedTrackWidth;
 }
 
 + (instancetype)cardWithStage:(NSString *)stage hint:(NSString *)hint {
@@ -253,6 +254,7 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
     }
     self.backgroundColor = [TwilightTheme glass];
     self.layer.cornerRadius = 22;
+    self.clipsToBounds = YES;
     [TwilightTheme applyBorderToLayer:self.layer width:1 traitCollection:self.traitCollection];
 
     _symbol = [[UIImageView alloc] initWithImage:[TwilightTheme symbolNamed:@"moon.stars" pointSize:28]];
@@ -278,6 +280,9 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
     [self addSubview:_hint];
 
     _track = [[UIView alloc] init];
+    _track.backgroundColor = [TwilightTheme fillStrong];
+    _track.clipsToBounds = YES;
+    _track.layer.cornerRadius = 2;
     _bar = [[UIView alloc] init];
     _bar.backgroundColor = [TwilightTheme accent];
     _bar.layer.cornerRadius = 2;
@@ -288,13 +293,29 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
 
 - (void)didMoveToWindow {
     [super didMoveToWindow];
+    _animatedTrackWidth = -1;
+    [self setNeedsLayout];
+}
+
+- (void)slideProgressBar {
     [_bar.layer removeAnimationForKey:@"twilight-slide"];
-    if (self.window == nil) {
+    CGFloat trackW = _track.bounds.size.width;
+    CGFloat barW = _bar.bounds.size.width;
+    if (self.window == nil || trackW < 1 || barW < 1) {
+        _animatedTrackWidth = -1;
+        return;
+    }
+    // position.x is the bar's center. Keep that center inside the track,
+    // which is already inset from the card.
+    CGFloat start = barW / 2.0;
+    CGFloat end = MAX(start, trackW - barW / 2.0);
+    _bar.layer.position = CGPointMake(start, CGRectGetMidY(_track.bounds));
+    if (end - start < 1) {
         return;
     }
     CABasicAnimation *slide = [CABasicAnimation animationWithKeyPath:@"position.x"];
-    slide.fromValue = @(8);
-    slide.toValue = @(MAX(self.bounds.size.width - 80, 40));
+    slide.fromValue = @(start);
+    slide.toValue = @(end);
     slide.duration = 0.9;
     slide.autoreverses = YES;
     slide.repeatCount = HUGE_VALF;
@@ -318,19 +339,30 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
 }
 
 - (CGSize)sizeThatFits:(CGSize)size {
-    CGFloat width = MIN(440, MAX(260, size.width));
+    CGFloat width = MIN(440, MAX(0, size.width));
+    if (width < 1) {
+        width = 280;
+    }
     return CGSizeMake(width, 196);
 }
 
 - (void)layoutSubviews {
     [super layoutSubviews];
     CGFloat pad = 24;
-    CGFloat width = self.bounds.size.width - pad * 2;
+    CGFloat inner = MAX(0, self.bounds.size.width - pad * 2);
     _symbol.frame = CGRectMake(pad, pad, 32, 32);
-    _stage.frame = CGRectMake(pad, CGRectGetMaxY(_symbol.frame) + 8, width, 56);
-    _hint.frame = CGRectMake(pad, CGRectGetMaxY(_stage.frame) + 4, width, 44);
-    _track.frame = CGRectMake(pad, CGRectGetMaxY(_hint.frame) + 12, width, 4);
-    _bar.frame = CGRectMake(0, 0, width * 0.35, 3);
+    _stage.frame = CGRectMake(pad, CGRectGetMaxY(_symbol.frame) + 8, inner, 56);
+    _hint.frame = CGRectMake(pad, CGRectGetMaxY(_stage.frame) + 4, inner, 44);
+    _track.frame = CGRectMake(pad, CGRectGetMaxY(_hint.frame) + 12, inner, 4);
+    CGFloat barW = floor(inner * 0.35);
+    if (barW < 24) {
+        barW = MIN(24, inner);
+    }
+    _bar.frame = CGRectMake(0, 0, barW, CGRectGetHeight(_track.bounds));
+    if (fabs(inner - _animatedTrackWidth) > 0.5) {
+        _animatedTrackWidth = inner;
+        [self slideProgressBar];
+    }
 }
 
 @end
