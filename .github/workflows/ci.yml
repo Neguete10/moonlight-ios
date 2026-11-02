@@ -404,8 +404,9 @@ jobs:
           }
 
           # The iPhone app draws landscape, but simctl's framebuffer stays
-          # portrait. A clockwise quarter-turn makes the header the top edge
-          # and the file wider than it is tall. iPad shots stay as captured.
+          # portrait, with the interface top along the right edge. Three
+          # clockwise quarter-turns put the header at the top and make the
+          # file wider than it is tall. iPad shots stay as captured.
           upright_iphone() {
             local file="$1"
             local size w h
@@ -414,7 +415,7 @@ jobs:
             h="${size##* }"
             echo "$file captured ${w}x${h}"
             if [ "$h" -gt "$w" ]; then
-              sips -r 90 "$file" >/dev/null
+              sips -r 270 "$file" >/dev/null
               size="$(png_size "$file")"
               w="${size%% *}"
               h="${size##* }"
