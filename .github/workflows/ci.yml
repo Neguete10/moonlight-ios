@@ -357,21 +357,12 @@ jobs:
             find "$dd/Build/Products" -name Moonlight.app -path '*iphonesimulator*' | head -1 > "$appfile" || true
           }
 
-          # Before is the parent of this commit: the phase 5 shell with the
-          # header, tile, host sheet, and settings bugs. After is this fix.
-          before_sha="$(git rev-parse HEAD^)"
-          rm -rf /tmp/twilight-before
-          git worktree add --detach /tmp/twilight-before "$before_sha"
-          git -C /tmp/twilight-before submodule update --init --recursive
-          echo "Building the previous UI for the before shots ($before_sha)"
-          build_app /tmp/twilight-before /tmp/dd-before /tmp/twilight-before-app
-          echo "Building this commit for the after shots"
+          # One simulator build. A second xcodebuild in this job was still
+          # running when the runner was torn down and the log never landed.
+          echo "Building this commit for screenshots at $(date -u +%H:%M:%S)"
           build_app "$GITHUB_WORKSPACE" /tmp/dd-after /tmp/twilight-after-app
-          before_app="$(cat /tmp/twilight-before-app)"
           after_app="$(cat /tmp/twilight-after-app)"
-          echo "Before app: $before_app"
-          echo "After app: $after_app"
-          test -d "$before_app"
+          echo "App: $after_app"
           test -d "$after_app"
 
           boot_device() {
@@ -437,12 +428,6 @@ jobs:
 
           boot_device "Twilight iPhone" "$(cat /tmp/twilight-iphone-type)"
           iphone="$(cat /tmp/twilight-booted-udid)"
-          install_app "$iphone" "$before_app"
-          shot "$iphone" dark library "$out/before-iphone-library-landscape-dark.png"
-          shot "$iphone" dark settings "$out/before-iphone-settings-landscape-dark.png"
-          upright_iphone "$out/before-iphone-library-landscape-dark.png"
-          upright_iphone "$out/before-iphone-settings-landscape-dark.png"
-
           install_app "$iphone" "$after_app"
           for mode in empty library hosts hostsheet settings resolution pairing addhost unpaired loading stream returnstream; do
             shot "$iphone" dark "$mode" "$out/after-iphone-${mode}-landscape-dark.png"
@@ -456,9 +441,6 @@ jobs:
 
           boot_device "Twilight iPad" "$(cat /tmp/twilight-ipad-type)"
           ipad="$(cat /tmp/twilight-booted-udid)"
-          install_app "$ipad" "$before_app"
-          shot "$ipad" dark library "$out/before-ipad-library-portrait-dark.png"
-          shot "$ipad" dark settings "$out/before-ipad-settings-portrait-dark.png"
           install_app "$ipad" "$after_app"
           for mode in empty library hostsheet settings stream; do
             shot "$ipad" dark "$mode" "$out/after-ipad-${mode}-portrait-dark.png"
