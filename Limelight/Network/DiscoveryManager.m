@@ -202,7 +202,7 @@
             callback(host, nil);
         }
     } else if (!prohibitedAddress) {
-        callback(nil, @"Could not connect to host.\n\nIf you're hosting using GeForce Experience, make sure you've enabled the toggle on the SHIELD tab.\n\nIf you're hosting using Sunshine, ensure it is running properly. If you're using a non-default port, you will need to include that here.");
+        callback(nil, @"Could not connect to host.\n\nMake sure Sunshine is running on that PC. If it uses a port other than the default, include the port in the address.");
     } else {
         callback(nil, prohibitedAddressMessage);
     }

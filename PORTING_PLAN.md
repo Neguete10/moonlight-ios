@@ -214,26 +214,21 @@ Twilight (`Session` video-format selection in `app/streaming/session.cpp`, codec
 - On Apple platforms, if HEVC hardware decode works, AV1 is deprioritized: it stays in the mask, and HEVC is offered first. HDR with no HEVC hardware decoder leaves AV1 at the top. H.264 remains the last fallback.
 - The Mac README states the same rule: Automatic stays on HEVC or AV1 and does not advertise PyroWave.
 
-This tree (`MainFrameViewController.prepareToStreamApp`):
+This tree (`MainFrameViewController.prepareToStreamApp`, `Utils av1HardwareDecodeSupported`):
 
-- The storyboard segments are H.264, HEVC, AV1, and Auto. Auto is the last segment. AV1 is removed when `VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)` is false. There is no PyroWave segment.
-- `CODEC_PREF_AUTO` does not set any AV1 bit. It adds HEVC when hardware decode exists, then always adds H.264. AV1 Main8 is added only when the user forces AV1, and AV1 Main10 only when that force is combined with HDR.
-- `VideoDecoderRenderer` can already build VideoToolbox format descriptions for H.264, HEVC, and AV1, including the 4:4:4 names in `Connection.getActiveCodecName`. The decoder is ahead of the Automatic mask.
-- The tvOS settings bundle offers Auto, H.264, and HEVC (`preferredCodec` values 0, 1, 2). That matches `CODEC_PREF_AUTO`, `CODEC_PREF_H264`, and `CODEC_PREF_HEVC`. There is no AV1 row.
-- Hardware AV1 decode is an A17 Pro / M3-class feature and later. The check is `VTIsHardwareDecodeSupported`, which is already how this app decides. Apple TV models through the A15, and the first Vision Pro (M2), do not report hardware AV1. Automatic on those devices is HEVC, then H.264.
+- The storyboard segments are H.264, HEVC, AV1, and Auto. AV1 is removed when `VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)` is false. The remaining segments are matched by title. There is no PyroWave segment.
+- Automatic sets AV1 Main 8 when that hardware check passes, then HEVC when hardware HEVC exists, then H.264. moonlight-common-c takes AV1 when the host's RTSP DESCRIBE offers `AV1/90000`, otherwise HEVC, otherwise H.264. An explicit AV1 choice uses the same fallback.
+- AV1 Main 10 is added when AV1 is in the mask, HDR is on, and `AVPlayer.availableHDRModes` includes HDR10. HEVC Main 10 is the HDR fallback. The host still has to report `SCM_AV1_MAIN10` before common-c selects the 10-bit AV1 profile.
+- The tvOS settings bundle lists Auto, H.264, HEVC, and AV1 (`preferredCodec` 0, 1, 2, 3). The system Settings bundle cannot hide a row per device, so a stored AV1 value on hardware that fails the runtime check is read back as Automatic.
+- Hardware AV1 decode is an A17 Pro / M3-class feature and later. The check is `VTIsHardwareDecodeSupported`, not a device list. Apple TV models through the A15, and the first Vision Pro (M2), do not report hardware AV1. Automatic on those devices is HEVC, then H.264.
 
-Work:
-
-- When the preference is Automatic, add the AV1 formats the decoder already accepts if `VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)` is true, and keep HEVC ahead of AV1 whenever HEVC hardware decode works. Leave H.264 last.
-- Do not add a PyroWave choice on any platform, and do not advertise PyroWave formats from Automatic or from any other choice. This client has no PyroWave decoder.
-- On tvOS, add an AV1 row with value 3 (`CODEC_PREF_AV1`) only when the hardware check passes. On current Apple TV hardware that row stays hidden, and Automatic remains HEVC.
-- YUV 4:4:4 is a separate Mac toggle. It is not required for this Automatic rule. Leave it out of this phase.
+YUV 4:4:4 stays a Mac-only toggle. This client does not advertise PyroWave.
 
 | Platform | Effort | Feasibility | Notes |
 | --- | --- | --- | --- |
 | iOS | S | Ships | Mask change in `prepareToStreamApp`. The VideoToolbox decoder already accepts AV1 and HEVC. PyroWave is omitted. |
 | iPadOS | S | Ships | Same function. AV1 appears on iPad models whose SoC reports hardware AV1. |
-| tvOS | S | Partial | Automatic prefers HEVC. The AV1 segment stays hidden unless `VTIsHardwareDecodeSupported` is true. No PyroWave. |
+| tvOS | S | Partial | Automatic prefers AV1 only when `VTIsHardwareDecodeSupported` is true, otherwise HEVC. The settings row cannot be hidden per device; an unsupported AV1 value is read as Automatic. No PyroWave. |
 | visionOS, Designed for iPad | S | Partial | Same mask as the iPad app. First-generation Vision Pro does not hardware-decode AV1, so Automatic is HEVC. |
 | visionOS, native | S | Partial | Same rule once a native target calls the same selector. Still no PyroWave. |
 
@@ -474,4 +469,4 @@ Code changes start after this plan. A sensible order, so later settings are not 
 5. Wire `setAdaptiveTriggers` to `GCDualSenseAdaptiveTrigger`, and check existing rumble on a DualSense.
 6. Add `LiSendRawControlStreamPacket` to moonlight-common-c, then the microphone toggle, on iOS and iPadOS only.
 7. Leave VRR as the existing fixed display-link lock, and label it that way on the overlay.
-8. Privacy manifest, App Store Connect record, and a Release archive with `ENABLE_APP_STORE_RESTRICTIONS` on every target that will be submitted.
+8. Privacy manifest, App Store Connect record, and a Release archive with `ENABLE_APP_STORE_RESTRICTIONS` on every target that will be submitted. The submission worksheet is `APP_STORE.md`.

@@ -2,12 +2,12 @@
   "images" : [
     {
       "idiom" : "tv",
-      "filename" : "bg.jpg",
+      "filename" : "bg.png",
       "scale" : "1x"
     },
     {
       "idiom" : "tv",
-      "filename" : "bg@2.jpg",
+      "filename" : "bg@2.png",
       "scale" : "2x"
     }
   ],

@@ -21,5 +21,6 @@
 - (void)saveContext;
 - (NSURL *)applicationDocumentsDirectory;
 - (NSURL*) getStoreURL;
++ (UIWindow *)currentWindow;
 
 @end

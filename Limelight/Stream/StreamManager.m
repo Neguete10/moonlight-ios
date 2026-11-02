@@ -203,6 +203,35 @@ static BOOL twilightHostLooksLocal(NSString *host) {
     return TRUE;
 }
 
+- (BOOL) getHudMetricsFps:(NSString **)fps bitrate:(NSString **)bitrate rtt:(NSString **)rtt {
+    video_stats_t stats;
+    if (!_connection || ![_connection getVideoStats:&stats]) {
+        return NO;
+    }
+    float interval = stats.endTime - stats.startTime;
+    double framesPerSecond = interval > 0 ? stats.totalFrames / interval : 0;
+    double measuredMbps = 0;
+    if (interval > 0) {
+        measuredMbps = (stats.receivedVideoBytes * 8.0) / interval / 1000000.0;
+    }
+    uint32_t rttMs = 0;
+    uint32_t variance = 0;
+    NSString *rttString = @"—";
+    if (LiGetEstimatedRttInfo(&rttMs, &variance)) {
+        rttString = [NSString stringWithFormat:@"%u ms", rttMs];
+    }
+    if (fps != nil) {
+        *fps = [NSString stringWithFormat:@"%.0f", framesPerSecond];
+    }
+    if (bitrate != nil) {
+        *bitrate = [NSString stringWithFormat:@"%.1f Mb/s", measuredMbps];
+    }
+    if (rtt != nil) {
+        *rtt = rttString;
+    }
+    return YES;
+}
+
 - (NSString*) getStatsOverlayText {
     video_stats_t stats;
     

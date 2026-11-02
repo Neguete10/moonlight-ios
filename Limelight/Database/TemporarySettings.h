@@ -36,6 +36,7 @@
 @property (nonatomic) BOOL statsOverlay;
 @property (nonatomic) BOOL enableAdaptiveBitrate;
 @property (nonatomic) BOOL enableMicrophone;
+@property (nonatomic) BOOL quitAppAfter;
 
 - (id) initFromSettings:(Settings*)settings;
 
