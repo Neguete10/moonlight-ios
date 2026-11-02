@@ -1236,7 +1236,8 @@ static NSMutableSet* hostList;
     // The bar is parented above the navigation content so a push/pop cannot
     // drop it. Hide it while another controller covers this grid, including
     // the stream, and show it again from viewDidAppear.
-    if (self.navigationController.topViewController != self) {
+    UIViewController *incoming = [self.transitionCoordinator viewControllerForKey:UITransitionContextToViewControllerKey];
+    if ((incoming != nil && incoming != self) || self.navigationController.topViewController != self) {
         _shellBar.hidden = YES;
     }
 #endif
