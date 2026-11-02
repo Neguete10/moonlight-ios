@@ -8,6 +8,9 @@
 
 #import "Utils.h"
 
+#import <AVFoundation/AVFoundation.h>
+#import <VideoToolbox/VideoToolbox.h>
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
@@ -64,6 +67,17 @@ NSString *const deviceName = @"roth";
     return NO;
 }
 
++ (BOOL)av1HardwareDecodeSupported {
+    if (@available(iOS 16.0, tvOS 16.0, *)) {
+        return VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1);
+    }
+    return NO;
+}
+
++ (BOOL)displaySupportsHDR10 {
+    return (AVPlayer.availableHDRModes & AVPlayerHDRModeHDR10) != 0;
+}
+
 #if !TARGET_OS_TV
 + (void) launchUrl:(NSString*)urlString {
     [[UIApplication sharedApplication] openURL:[NSURL URLWithString:urlString] options:@{} completionHandler:nil];
@@ -71,12 +85,8 @@ NSString *const deviceName = @"roth";
 #endif
 
 + (void) addHelpOptionToDialog:(UIAlertController*)dialog {
-#if !TARGET_OS_TV
-    // tvOS doesn't have a browser
-    [dialog addAction:[UIAlertAction actionWithTitle:@"Help" style:UIAlertActionStyleDefault handler:^(UIAlertAction* action){
-        [Utils launchUrl:@"https://github.com/moonlight-stream/moonlight-docs/wiki/Troubleshooting"];
-    }]];
-#endif
+    // Twilight does not attach a browser link. Callers still share this hook.
+    (void)dialog;
 }
 
 + (BOOL) parseAddressPortString:(NSString*)addressPort address:(NSRange*)address port:(NSRange*)port {
@@ -145,6 +155,66 @@ NSString *const deviceName = @"roth";
         return [NSString stringWithFormat:@"%@:%u", address, port];
     }
 }
+
+#if !TARGET_OS_TV
++ (UIInterfaceOrientationMask)twilightLibraryOrientations {
+    if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
+        return UIInterfaceOrientationMaskLandscape;
+    }
+    return UIInterfaceOrientationMaskAll;
+}
+
++ (UIInterfaceOrientationMask)twilightStreamOrientations {
+    return [self twilightLibraryOrientations];
+}
+
++ (void)twilightRequestGeometryUpdateForViewController:(UIViewController *)viewController orientations:(UIInterfaceOrientationMask)orientations {
+    if (viewController == nil) {
+        return;
+    }
+    if (@available(iOS 16.0, *)) {
+        UIViewController *cursor = viewController;
+        while (cursor != nil) {
+            [cursor setNeedsUpdateOfSupportedInterfaceOrientations];
+            cursor = cursor.parentViewController;
+        }
+        UIWindowScene *scene = viewController.view.window.windowScene;
+        if (scene == nil) {
+            for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
+                if ([candidate isKindOfClass:[UIWindowScene class]]) {
+                    scene = (UIWindowScene *)candidate;
+                    break;
+                }
+            }
+        }
+        if (scene == nil) {
+            return;
+        }
+        UIWindowSceneGeometryPreferencesIOS *preferences = [[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:orientations];
+        [scene requestGeometryUpdateWithPreferences:preferences errorHandler:^(NSError *error) {
+            Log(LOG_W, @"Interface orientation update failed: %@", error);
+        }];
+        return;
+    }
+
+    // iOS 15 has no scene geometry update. Match the device when several
+    // orientations are allowed, and pick a landscape side when only those are.
+    UIDeviceOrientation device = UIDevice.currentDevice.orientation;
+    UIInterfaceOrientation target = UIInterfaceOrientationPortrait;
+    BOOL landscapeOnly = (orientations & UIInterfaceOrientationMaskPortrait) == 0;
+    if (landscapeOnly) {
+        target = device == UIDeviceOrientationLandscapeLeft ? UIInterfaceOrientationLandscapeRight : UIInterfaceOrientationLandscapeLeft;
+    }
+    else if (device == UIDeviceOrientationLandscapeLeft) {
+        target = UIInterfaceOrientationLandscapeRight;
+    }
+    else if (device == UIDeviceOrientationLandscapeRight) {
+        target = UIInterfaceOrientationLandscapeLeft;
+    }
+    [[UIDevice currentDevice] setValue:@(target) forKey:@"orientation"];
+    [UIViewController attemptRotationToDeviceOrientation];
+}
+#endif
 
 @end
 

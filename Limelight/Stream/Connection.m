@@ -35,6 +35,8 @@ static id<ConnectionCallbacks> _callbacks;
 static int lastFrameNumber;
 static int activeVideoFormat;
 static video_stats_t currentVideoStats;
+static uint32_t cumulativeTotalFrames;
+static uint32_t cumulativeDroppedFrames;
 static video_stats_t lastVideoStats;
 static NSLock* videoStatsLock;
 
@@ -52,7 +54,18 @@ int DrDecoderSetup(int videoFormat, int width, int height, int redrawRate, void*
     activeVideoFormat = videoFormat;
     memset(&currentVideoStats, 0, sizeof(currentVideoStats));
     memset(&lastVideoStats, 0, sizeof(lastVideoStats));
+    __atomic_store_n(&cumulativeTotalFrames, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&cumulativeDroppedFrames, 0, __ATOMIC_RELAXED);
     return 0;
+}
+
+void TwilightGetCumulativeVideoCounts(uint32_t *totalFrames, uint32_t *droppedFrames) {
+    if (totalFrames != NULL) {
+        *totalFrames = __atomic_load_n(&cumulativeTotalFrames, __ATOMIC_RELAXED);
+    }
+    if (droppedFrames != NULL) {
+        *droppedFrames = __atomic_load_n(&cumulativeDroppedFrames, __ATOMIC_RELAXED);
+    }
 }
 
 void DrStart(void)
@@ -158,8 +171,11 @@ int DrSubmitDecodeUnit(PDECODE_UNIT decodeUnit)
         }
         
         // Any frame number greater than m_LastFrameNumber + 1 represents a dropped frame
-        currentVideoStats.networkDroppedFrames += decodeUnit->frameNumber - (lastFrameNumber + 1);
-        currentVideoStats.totalFrames += decodeUnit->frameNumber - (lastFrameNumber + 1);
+        uint32_t missedFrames = decodeUnit->frameNumber - (lastFrameNumber + 1);
+        currentVideoStats.networkDroppedFrames += missedFrames;
+        currentVideoStats.totalFrames += missedFrames;
+        __atomic_fetch_add(&cumulativeDroppedFrames, missedFrames, __ATOMIC_RELAXED);
+        __atomic_fetch_add(&cumulativeTotalFrames, missedFrames, __ATOMIC_RELAXED);
         lastFrameNumber = decodeUnit->frameNumber;
     }
     
@@ -179,6 +195,7 @@ int DrSubmitDecodeUnit(PDECODE_UNIT decodeUnit)
     currentVideoStats.receivedFrames++;
     currentVideoStats.totalFrames++;
     currentVideoStats.receivedVideoBytes += decodeUnit->fullLength;
+    __atomic_fetch_add(&cumulativeTotalFrames, 1, __ATOMIC_RELAXED);
 
     PLENTRY entry = decodeUnit->bufferList;
     while (entry != NULL) {
@@ -372,6 +389,30 @@ void ClSetControllerLED(uint16_t controllerNumber, uint8_t r, uint8_t g, uint8_t
     [_callbacks setControllerLed:controllerNumber r:r g:g b:b];
 }
 
+void ClSetAdaptiveTriggers(uint16_t controllerNumber, uint8_t eventFlags, uint8_t typeLeft, uint8_t typeRight, uint8_t *left, uint8_t *right)
+{
+    uint8_t leftCopy[DS_EFFECT_PAYLOAD_SIZE];
+    uint8_t rightCopy[DS_EFFECT_PAYLOAD_SIZE];
+    memset(leftCopy, 0, sizeof(leftCopy));
+    memset(rightCopy, 0, sizeof(rightCopy));
+    if (left != NULL) {
+        memcpy(leftCopy, left, sizeof(leftCopy));
+    }
+    if (right != NULL) {
+        memcpy(rightCopy, right, sizeof(rightCopy));
+    }
+    NSData *leftData = [NSData dataWithBytes:leftCopy length:sizeof(leftCopy)];
+    NSData *rightData = [NSData dataWithBytes:rightCopy length:sizeof(rightCopy)];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [_callbacks setAdaptiveTriggers:controllerNumber
+                             eventFlags:eventFlags
+                               typeLeft:typeLeft
+                              typeRight:typeRight
+                                   left:(uint8_t *)leftData.bytes
+                                  right:(uint8_t *)rightData.bytes];
+    });
+}
+
 -(void) terminate
 {
     // Interrupt any action blocking LiStartConnection(). This is
@@ -492,6 +533,7 @@ void ClSetControllerLED(uint16_t controllerNumber, uint8_t r, uint8_t g, uint8_t
     _clCallbacks.rumbleTriggers = ClRumbleTriggers;
     _clCallbacks.setMotionEventState = ClSetMotionEventState;
     _clCallbacks.setControllerLED = ClSetControllerLED;
+    _clCallbacks.setAdaptiveTriggers = ClSetAdaptiveTriggers;
 
     return self;
 }

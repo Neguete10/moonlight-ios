@@ -31,6 +31,14 @@
 - (NSURLRequest*) newAppAssetRequestWithAppId:(NSString*)appId;
 - (void) executeRequestSynchronously:(HttpRequest*)request;
 
+// Paired HTTPS. Returns NO when the request fails. *runtimeBitrate is YES
+// only when the body contains "runtime_bitrate".
+- (BOOL) requestAbrRuntimeBitrate:(BOOL *)runtimeBitrate;
+
+// Sets the encoder bitrate. The host cap for this call is 500000 kbps.
+// Returns NO when the host rejects the request. Does not stop the stream.
+- (BOOL) requestSetEncoderBitrateKbps:(int)kbps appliedKbps:(int *)applied;
+
 @end
 
 

@@ -304,6 +304,60 @@
     return [self createRequestFromString:urlString timeout:NORMAL_TIMEOUT_SEC];
 }
 
+- (HttpResponse *)executeHttpsGet:(NSString *)path query:(NSString *)query {
+    if (![self ensureHttpsUrlPopulated:NO]) {
+        return nil;
+    }
+
+    NSString *uuid = [[[NSUUID UUID] UUIDString] stringByReplacingOccurrencesOfString:@"-" withString:@""];
+    NSString *extra = query != nil ? [NSString stringWithFormat:@"&%@", query] : @"";
+    NSString *urlString = [NSString stringWithFormat:@"%@/%@?uniqueid=%@&uuid=%@%@",
+                           _baseHTTPSURL, path, _uniqueId, uuid, extra];
+    HttpResponse *response = [[HttpResponse alloc] init];
+    NSURLRequest *request = [self createRequestFromString:urlString timeout:NORMAL_TIMEOUT_SEC];
+    [self executeRequestSynchronously:[HttpRequest requestForResponse:response withUrlRequest:request]];
+    return response;
+}
+
+- (BOOL) requestAbrRuntimeBitrate:(BOOL *)runtimeBitrate {
+    if (runtimeBitrate != NULL) {
+        *runtimeBitrate = NO;
+    }
+    HttpResponse *response = [self executeHttpsGet:@"api/abr/capabilities" query:nil];
+    if (response == nil || response.data == nil || response.data.length == 0) {
+        return NO;
+    }
+    NSString *body = [[NSString alloc] initWithData:response.data encoding:NSUTF8StringEncoding];
+    if (body == nil) {
+        return NO;
+    }
+    if (runtimeBitrate != NULL) {
+        *runtimeBitrate = [body containsString:@"\"runtime_bitrate\""];
+    }
+    return YES;
+}
+
+- (BOOL) requestSetEncoderBitrateKbps:(int)kbps appliedKbps:(int *)applied {
+    if (kbps > 500000) {
+        kbps = 500000;
+    }
+    if (kbps < 1) {
+        kbps = 1;
+    }
+    HttpResponse *response = [self executeHttpsGet:@"bitrate" query:[NSString stringWithFormat:@"bitrate=%d", kbps]];
+    if (response == nil || ![response isStatusOk]) {
+        return NO;
+    }
+    NSInteger value = 0;
+    if (![response getIntTag:@"bitrate" value:&value] || value <= 0) {
+        return NO;
+    }
+    if (applied != NULL) {
+        *applied = (int)value;
+    }
+    return YES;
+}
+
 - (NSString*) bytesToHex:(NSData*)data {
     const unsigned char* bytes = [data bytes];
     NSMutableString *hex = [[NSMutableString alloc] init];
