@@ -113,14 +113,18 @@ static UIColor *TwilightHex(int hex) {
                            [UIColor colorWithRed:0.99 green:0.99 blue:1 alpha:0.97]);
 }
 
++ (UIColor *)sheetBackground {
+    return TwilightDynamic(TwilightHex(0x1C1F27), TwilightHex(0xFBFBFD));
+}
+
 + (UIColor *)sidebar {
     return TwilightDynamic([UIColor colorWithRed:0.07 green:0.08 blue:0.10 alpha:0.92],
                            [UIColor colorWithWhite:1 alpha:0.92]);
 }
 
 + (UIColor *)scrim {
-    return TwilightDynamic([UIColor colorWithWhite:0 alpha:0.46],
-                           [UIColor colorWithWhite:0 alpha:0.28]);
+    return TwilightDynamic([UIColor colorWithWhite:0 alpha:0.62],
+                           [UIColor colorWithWhite:0 alpha:0.36]);
 }
 
 + (UIColor *)selection {
@@ -233,6 +237,7 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
     UILabel *_hint;
     UIView *_track;
     UIView *_bar;
+    CGFloat _animatedTrackWidth;
 }
 
 + (instancetype)cardWithStage:(NSString *)stage hint:(NSString *)hint {
@@ -249,6 +254,7 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
     }
     self.backgroundColor = [TwilightTheme glass];
     self.layer.cornerRadius = 22;
+    self.clipsToBounds = YES;
     [TwilightTheme applyBorderToLayer:self.layer width:1 traitCollection:self.traitCollection];
 
     _symbol = [[UIImageView alloc] initWithImage:[TwilightTheme symbolNamed:@"moon.stars" pointSize:28]];
@@ -274,6 +280,9 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
     [self addSubview:_hint];
 
     _track = [[UIView alloc] init];
+    _track.backgroundColor = [TwilightTheme fillStrong];
+    _track.clipsToBounds = YES;
+    _track.layer.cornerRadius = 2;
     _bar = [[UIView alloc] init];
     _bar.backgroundColor = [TwilightTheme accent];
     _bar.layer.cornerRadius = 2;
@@ -284,13 +293,29 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
 
 - (void)didMoveToWindow {
     [super didMoveToWindow];
+    _animatedTrackWidth = -1;
+    [self setNeedsLayout];
+}
+
+- (void)slideProgressBar {
     [_bar.layer removeAnimationForKey:@"twilight-slide"];
-    if (self.window == nil) {
+    CGFloat trackW = _track.bounds.size.width;
+    CGFloat barW = _bar.bounds.size.width;
+    if (self.window == nil || trackW < 1 || barW < 1) {
+        _animatedTrackWidth = -1;
+        return;
+    }
+    // position.x is the bar's center. Keep that center inside the track,
+    // which is already inset from the card.
+    CGFloat start = barW / 2.0;
+    CGFloat end = MAX(start, trackW - barW / 2.0);
+    _bar.layer.position = CGPointMake(start, CGRectGetMidY(_track.bounds));
+    if (end - start < 1) {
         return;
     }
     CABasicAnimation *slide = [CABasicAnimation animationWithKeyPath:@"position.x"];
-    slide.fromValue = @(8);
-    slide.toValue = @(MAX(self.bounds.size.width - 80, 40));
+    slide.fromValue = @(start);
+    slide.toValue = @(end);
     slide.duration = 0.9;
     slide.autoreverses = YES;
     slide.repeatCount = HUGE_VALF;
@@ -314,19 +339,30 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
 }
 
 - (CGSize)sizeThatFits:(CGSize)size {
-    CGFloat width = MIN(440, MAX(260, size.width));
+    CGFloat width = MIN(440, MAX(0, size.width));
+    if (width < 1) {
+        width = 280;
+    }
     return CGSizeMake(width, 196);
 }
 
 - (void)layoutSubviews {
     [super layoutSubviews];
     CGFloat pad = 24;
-    CGFloat width = self.bounds.size.width - pad * 2;
+    CGFloat inner = MAX(0, self.bounds.size.width - pad * 2);
     _symbol.frame = CGRectMake(pad, pad, 32, 32);
-    _stage.frame = CGRectMake(pad, CGRectGetMaxY(_symbol.frame) + 8, width, 56);
-    _hint.frame = CGRectMake(pad, CGRectGetMaxY(_stage.frame) + 4, width, 44);
-    _track.frame = CGRectMake(pad, CGRectGetMaxY(_hint.frame) + 12, width, 4);
-    _bar.frame = CGRectMake(0, 0, width * 0.35, 3);
+    _stage.frame = CGRectMake(pad, CGRectGetMaxY(_symbol.frame) + 8, inner, 56);
+    _hint.frame = CGRectMake(pad, CGRectGetMaxY(_stage.frame) + 4, inner, 44);
+    _track.frame = CGRectMake(pad, CGRectGetMaxY(_hint.frame) + 12, inner, 4);
+    CGFloat barW = floor(inner * 0.35);
+    if (barW < 24) {
+        barW = MIN(24, inner);
+    }
+    _bar.frame = CGRectMake(0, 0, barW, CGRectGetHeight(_track.bounds));
+    if (fabs(inner - _animatedTrackWidth) > 0.5) {
+        _animatedTrackWidth = inner;
+        [self slideProgressBar];
+    }
 }
 
 @end
@@ -398,7 +434,8 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
     [self addSubview:_banner];
 
     _art = [[UIImageView alloc] init];
-    _art.contentMode = UIViewContentModeScaleAspectFit;
+    _art.contentMode = UIViewContentModeScaleAspectFill;
+    _art.clipsToBounds = YES;
     _art.backgroundColor = [TwilightTheme fill];
     [_banner addSubview:_art];
 
@@ -458,46 +495,75 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
     [self setNeedsLayout];
 }
 
++ (CGFloat)heightForWidth:(CGFloat)width
+                  leading:(CGFloat)leading
+                 trailing:(CGFloat)trailing
+               showsTitle:(BOOL)showsTitle
+                     pair:(BOOL)pair
+                  desktop:(BOOL)desktop {
+    CGFloat y = showsTitle ? 80 : 0;
+    if (pair) {
+        return y + 112;
+    }
+    if (!desktop) {
+        return y;
+    }
+    CGFloat bannerW = MAX(0, width - leading - trailing);
+    return y + (bannerW < 520 ? 228 : 156);
+}
+
 - (void)layoutSubviews {
     [super layoutSubviews];
     CGFloat width = self.bounds.size.width;
     CGFloat textX = _leading;
     CGFloat trailing = _trailing > 0 ? _trailing : 20;
+    CGFloat contentW = MAX(0, width - textX - trailing);
     CGFloat reserve = _hostButton.hidden ? 0 : 92;
-    CGFloat textW = MAX(0, width - textX - trailing - reserve);
+    CGFloat textW = MAX(0, contentW - reserve);
     CGFloat y = 0;
     if (!_hostLabel.hidden) {
-        _hostLabel.frame = CGRectMake(textX, 0, textW, 40);
-        _subtitleLabel.frame = CGRectMake(textX, 42, textW, 22);
+        _hostLabel.frame = CGRectMake(textX, 0, textW, 44);
+        _subtitleLabel.frame = CGRectMake(textX, 46, textW, 22);
         _hostButton.frame = CGRectMake(width - trailing - 84, 8, 84, 36);
         [TwilightTheme applyBorderToLayer:_hostButton.layer width:1 traitCollection:self.traitCollection];
         y = 80;
     }
     if (!_pairCard.hidden) {
-        _pairCard.frame = CGRectMake(textX, y, MAX(0, width - textX - trailing), 104);
-        _pairButton.frame = CGRectMake(16, 56, 110, 36);
+        _pairCard.frame = CGRectMake(textX, y, contentW, 104);
+        for (UIView *subview in _pairCard.subviews) {
+            if ([subview isKindOfClass:[UILabel class]]) {
+                subview.frame = CGRectMake(16, 16, MAX(0, contentW - 32), 28);
+            }
+        }
+        _pairButton.frame = CGRectMake(16, 56, MIN(120, MAX(0, contentW - 32)), 36);
         [TwilightTheme applyBorderToLayer:_pairCard.layer width:1 traitCollection:self.traitCollection];
         return;
     }
     if (_banner.hidden) {
         return;
     }
-    _banner.frame = CGRectMake(textX, y, textW, 148);
-    BOOL narrow = textW < 460;
+    BOOL narrow = contentW < 520;
     if (narrow) {
-        _banner.frame = CGRectMake(textX, y, textW, 210);
-        _art.frame = CGRectMake(0, 0, textW, 96);
-        _desktopTitle.frame = CGRectMake(16, 104, textW - 32, 28);
-        _desktopHint.frame = CGRectMake(16, 132, textW - 32, 32);
-        _streamButton.frame = CGRectMake(16, 168, 110, 36);
-        _quitButton.frame = CGRectMake(134, 168, 72, 36);
+        _banner.frame = CGRectMake(textX, y, contentW, 220);
+        _art.frame = CGRectMake(0, 0, contentW, 100);
+        CGFloat textWidth = MAX(0, contentW - 32);
+        _desktopTitle.frame = CGRectMake(16, 108, textWidth, 28);
+        _desktopHint.frame = CGRectMake(16, 138, textWidth, 34);
+        CGFloat buttonGap = 8;
+        CGFloat streamW = MIN(120, MAX(88, textWidth * 0.48));
+        CGFloat quitW = _quitButton.hidden ? 0 : MIN(88, MAX(0, textWidth - streamW - buttonGap));
+        _streamButton.frame = CGRectMake(16, 180, streamW, 36);
+        _quitButton.frame = CGRectMake(16 + streamW + buttonGap, 180, quitW, 36);
     }
     else {
-        _art.frame = CGRectMake(0, 0, 220, 148);
-        _streamButton.frame = CGRectMake(textW - 128, 40, 108, 40);
-        _quitButton.frame = CGRectMake(textW - 128, 88, 108, 32);
-        CGFloat labelX = 236;
-        CGFloat labelW = MAX(40, _streamButton.frame.origin.x - labelX - 12);
+        _banner.frame = CGRectMake(textX, y, contentW, 156);
+        _art.frame = CGRectMake(0, 0, 104, 156);
+        CGFloat buttonW = 112;
+        CGFloat buttonX = contentW - 16 - buttonW;
+        _streamButton.frame = CGRectMake(buttonX, 40, buttonW, 40);
+        _quitButton.frame = CGRectMake(buttonX, 88, buttonW, 36);
+        CGFloat labelX = 120;
+        CGFloat labelW = MAX(40, buttonX - labelX - 12);
         _desktopTitle.frame = CGRectMake(labelX, 44, labelW, 30);
         _desktopHint.frame = CGRectMake(labelX, 78, labelW, 36);
     }
@@ -580,15 +646,25 @@ static TwilightBlockButton *TwilightButton(NSString *title, UIColor *fill, UICol
     CGFloat height = 32;
     CGFloat y = 6;
     CGFloat x = 8;
-    CGFloat inner = self.bounds.size.width - 16;
-    CGFloat chipW = MAX(72, (inner - 88 - gap * 3) / 3.0);
+    CGFloat inner = MAX(0, self.bounds.size.width - 16);
+    CGFloat endW = inner < 280 ? 56 : 72;
+    CGFloat chipW = floor((inner - endW - gap * 3) / 3.0);
+    if (chipW < 44) {
+        chipW = 44;
+    }
     _fpsChip.frame = CGRectMake(x, y, chipW, height);
     _rateChip.frame = CGRectMake(CGRectGetMaxX(_fpsChip.frame) + gap, y, chipW, height);
     _rttChip.frame = CGRectMake(CGRectGetMaxX(_rateChip.frame) + gap, y, chipW, height);
-    _end.frame = CGRectMake(self.bounds.size.width - 8 - 72, y, 72, height);
+    _end.frame = CGRectMake(self.bounds.size.width - 8 - endW, y, endW, height);
     _fps.frame = _fpsChip.bounds;
     _rate.frame = _rateChip.bounds;
     _rtt.frame = _rttChip.bounds;
+    _fps.adjustsFontSizeToFitWidth = YES;
+    _rate.adjustsFontSizeToFitWidth = YES;
+    _rtt.adjustsFontSizeToFitWidth = YES;
+    _fps.minimumScaleFactor = 0.7;
+    _rate.minimumScaleFactor = 0.7;
+    _rtt.minimumScaleFactor = 0.7;
 }
 
 - (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {

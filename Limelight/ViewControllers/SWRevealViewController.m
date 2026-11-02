@@ -681,6 +681,38 @@ const int FrontViewPositionNone = 0xff;
     return controller;
 }
 
+#if !TARGET_OS_TV
+- (UIViewController *)twilightOrientationChild {
+    UIViewController *controller = self.frontViewController;
+    if ([controller isKindOfClass:[UINavigationController class]]) {
+        UIViewController *top = ((UINavigationController *)controller).topViewController;
+        if (top != nil) {
+            return top;
+        }
+    }
+    return controller;
+}
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    UIViewController *child = [self twilightOrientationChild];
+    if (child != nil && child != self) {
+        return [child supportedInterfaceOrientations];
+    }
+    if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
+        return UIInterfaceOrientationMaskLandscape;
+    }
+    return UIInterfaceOrientationMaskAll;
+}
+
+- (BOOL)shouldAutorotate {
+    UIViewController *child = [self twilightOrientationChild];
+    if (child != nil && child != self) {
+        return [child shouldAutorotate];
+    }
+    return YES;
+}
+#endif
+
 
 #pragma mark - View lifecycle
 

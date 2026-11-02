@@ -11,6 +11,7 @@
 #import "AppDelegate.h"
 #import "MainFrameViewController.h"
 #import "SWRevealViewController.h"
+#import "Utils.h"
 
 @implementation SceneDelegate
 
@@ -35,6 +36,9 @@
         [self publishWindow];
         window.rootViewController = root;
         [window makeKeyAndVisible];
+        if (windowScene.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
+            [Utils twilightRequestGeometryUpdateForViewController:root orientations:UIInterfaceOrientationMaskLandscape];
+        }
         Log(LOG_I, @"Opened %@ storyboard for idiom %ld", storyboardName, (long)windowScene.traitCollection.userInterfaceIdiom);
     }
     else {

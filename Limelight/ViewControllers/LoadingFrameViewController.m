@@ -9,6 +9,7 @@
 #import "LoadingFrameViewController.h"
 #import "AppDelegate.h"
 #import "TwilightTheme.h"
+#import "Utils.h"
 
 @implementation LoadingFrameViewController {
     BOOL presented;
@@ -25,9 +26,13 @@
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
-    CGSize size = [_card sizeThatFits:CGSizeMake(self.view.bounds.size.width - 64, 200)];
+    UIEdgeInsets insets = self.view.safeAreaInsets;
+    CGFloat maxW = self.view.bounds.size.width - insets.left - insets.right - 48;
+    maxW = MAX(160, maxW);
+    CGSize size = [_card sizeThatFits:CGSizeMake(maxW, 220)];
     _card.bounds = (CGRect){CGPointZero, size};
-    _card.center = CGPointMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds));
+    CGRect safe = UIEdgeInsetsInsetRect(self.view.bounds, insets);
+    _card.center = CGPointMake(CGRectGetMidX(safe), CGRectGetMidY(safe));
 }
 
 - (UIViewController*) activeViewController {
@@ -91,5 +96,19 @@
 - (BOOL)isShown {
     return presented;
 }
+
+#if !TARGET_OS_TV
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    UIViewController *presenter = self.presentingViewController;
+    if (presenter != nil) {
+        return [presenter supportedInterfaceOrientations];
+    }
+    return [Utils twilightLibraryOrientations];
+}
+
+- (BOOL)shouldAutorotate {
+    return YES;
+}
+#endif
 
 @end

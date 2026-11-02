@@ -5,6 +5,7 @@
 
 #import "AboutViewController.h"
 #import "TwilightTheme.h"
+#import "Utils.h"
 
 static NSString * const kSourceRepositoryURL = @"https://github.com/Neguete10/moonlight-ios";
 
@@ -20,6 +21,16 @@ static NSString * const kSourceRepositoryURL = @"https://github.com/Neguete10/mo
 #endif
     [presenter presentViewController:navigation animated:YES completion:nil];
 }
+
+#if !TARGET_OS_TV
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return [Utils twilightLibraryOrientations];
+}
+
+- (BOOL)shouldAutorotate {
+    return YES;
+}
+#endif
 
 - (void)viewDidLoad {
     [super viewDidLoad];

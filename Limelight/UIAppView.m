@@ -23,16 +23,13 @@ static UIImage* noImage;
 
 + (CGSize)preferredSize {
 #if TARGET_OS_TV
-    return CGSizeMake(220, 280);
+    return CGSizeMake(220, 370);
 #else
-    BOOL wide = UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad;
-    if (@available(iOS 17.0, *)) {
-        if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomVision) {
-            wide = YES;
-        }
-    }
-    CGFloat art = wide ? 168 : 150;
-    return CGSizeMake(art, art + 36);
+    // Moonlight box art is portrait, about 2:3. Callers that know the column
+    // width should size the cell themselves; this is the fallback.
+    CGFloat artW = 150;
+    CGFloat artH = floor(artW * 3.0 / 2.0);
+    return CGSizeMake(artW, artH + 44);
 #endif
 }
 
@@ -50,12 +47,13 @@ static UIImage* noImage;
     self.backgroundColor = [UIColor clearColor];
     [self setAlpha:app.hidden ? 0.4 : 1.0];
 
-    CGFloat art = self.bounds.size.width;
-    _appImage = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, art, art)];
+    CGFloat artW = self.bounds.size.width;
+    CGFloat artH = floor(artW * 3.0 / 2.0);
+    _appImage = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, artW, artH)];
     _appImage.image = noImage;
-    _appImage.contentMode = UIViewContentModeScaleAspectFill;
+    _appImage.contentMode = UIViewContentModeScaleAspectFit;
     _appImage.clipsToBounds = YES;
-    _appImage.layer.cornerRadius = 14;
+    _appImage.layer.cornerRadius = 16;
     _appImage.backgroundColor = [TwilightTheme fill];
     [self addSubview:_appImage];
 
@@ -159,7 +157,11 @@ static UIImage* noImage;
         _appImage.contentMode = UIViewContentModeCenter;
     }
     else {
-        _appImage.contentMode = UIViewContentModeScaleAspectFill;
+        // Portrait covers fill a 2:3 tile. Square utility art stays whole, centered
+        // on the same card, instead of being cropped or stretched.
+        CGFloat aspect = appImage.size.height > 1 ? appImage.size.width / appImage.size.height : 1;
+        BOOL portraitCover = aspect > 0.55 && aspect < 0.85;
+        _appImage.contentMode = portraitCover ? UIViewContentModeScaleAspectFill : UIViewContentModeScaleAspectFit;
     }
 
     _appLabel.text = _app.name;
@@ -175,9 +177,15 @@ static UIImage* noImage;
 }
 
 - (void) positionSubviews {
-    CGFloat art = self.bounds.size.width;
-    _appImage.frame = CGRectMake(0, 0, art, art);
-    _appLabel.frame = CGRectMake(0, art + 8, art, self.bounds.size.height - art - 8);
+    CGFloat artW = self.bounds.size.width;
+    CGFloat labelH = 40;
+    CGFloat artH = self.bounds.size.height - labelH;
+    if (artH < 40) {
+        artH = floor(artW * 3.0 / 2.0);
+    }
+    _appImage.frame = CGRectMake(0, 0, artW, artH);
+    _appImage.layer.cornerRadius = 16;
+    _appLabel.frame = CGRectMake(0, artH + 6, artW, MAX(28, self.bounds.size.height - artH - 6));
     _liveBadge.frame = CGRectMake(8, 8, 44, 20);
     CGFloat border = [self isRunning] ? 2.0 : 1.0;
     _appImage.layer.borderWidth = border;
