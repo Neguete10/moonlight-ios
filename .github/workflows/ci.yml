@@ -408,32 +408,53 @@ jobs:
             echo "Wrote $file"
           }
 
-          # Rotate the simulated device. Keystroke rotation left the framebuffer
-          # in portrait, so landscape shots were sideways. simctl ui orientation
-          # changes the device orientation the screenshot buffer uses.
-          set_orientation() {
-            local udid="$1"
-            local orientation="$2"
-            echo "Setting $udid orientation to $orientation"
-            if ! xcrun simctl ui "$udid" orientation "$orientation"; then
-              echo "simctl ui orientation is unavailable. ui help:"
-              xcrun simctl help ui || true
-              exit 1
-            fi
-            sleep 2
-          }
-
           assert_orientation() {
             local file="$1"
             local expect="$2"
             python3 -c 'import struct,sys; p,expect=sys.argv[1],sys.argv[2]; d=open(p,"rb").read(); w,h=struct.unpack(">II", d[16:24]); print("%s: %dx%d (want %s)"%(p,w,h,expect)); land=w>h; ok=land if expect=="landscape" else not land; sys.exit(0 if ok else 1)' "$file" "$expect"
           }
 
+          # This runner's simctl ui has appearance and content size, not
+          # orientation. Open Simulator and use its rotate shortcut, which
+          # updates the framebuffer simctl io screenshot reads. Retry until
+          # the PNG is actually wider or taller as requested.
+          rotate_simulator_once() {
+            open -a Simulator --args -CurrentDeviceUDID "$1" || true
+            sleep 1
+            osascript -e 'tell application "Simulator" to activate' \
+              -e 'delay 0.6' \
+              -e 'tell application "System Events" to tell process "Simulator" to set frontmost to true' \
+              -e 'delay 0.3' \
+              -e 'tell application "System Events" to key code 124 using command down' || true
+            sleep 2
+          }
+
+          ensure_orientation() {
+            local udid="$1"
+            local expect="$2"
+            local probe="$out/.orientation-probe.png"
+            if xcrun simctl ui "$udid" orientation "$( [ "$expect" = landscape ] && echo landscapeLeft || echo portrait )" 2>/dev/null; then
+              sleep 2
+            fi
+            local attempt
+            for attempt in 1 2 3 4 5; do
+              xcrun simctl io "$udid" screenshot "$probe"
+              if assert_orientation "$probe" "$expect"; then
+                echo "Simulator framebuffer is $expect"
+                return 0
+              fi
+              echo "Framebuffer is not $expect yet; rotating (attempt $attempt)"
+              rotate_simulator_once "$udid"
+            done
+            echo "Could not put the simulator framebuffer in $expect"
+            assert_orientation "$probe" "$expect"
+          }
+
           boot_device "Twilight iPhone" "$(cat /tmp/twilight-iphone-type)"
           iphone="$(cat /tmp/twilight-booted-udid)"
-          # iPhone is landscape-only. Boot the device on its side before launch
-          # so the screenshot buffer matches the interface.
-          set_orientation "$iphone" landscapeLeft
+          # iPhone is landscape-only. Turn the device before launch so the
+          # screenshot buffer is wider than it is tall.
+          ensure_orientation "$iphone" landscape
           install_app "$iphone" "$before_app"
           shot "$iphone" dark library "$out/before-iphone-library-landscape-dark.png"
           shot "$iphone" dark settings "$out/before-iphone-settings-landscape-dark.png"
@@ -452,7 +473,7 @@ jobs:
 
           boot_device "Twilight iPad" "$(cat /tmp/twilight-ipad-type)"
           ipad="$(cat /tmp/twilight-booted-udid)"
-          set_orientation "$ipad" portrait
+          ensure_orientation "$ipad" portrait
           install_app "$ipad" "$before_app"
           shot "$ipad" dark library "$out/before-ipad-library-portrait-dark.png"
           shot "$ipad" dark settings "$out/before-ipad-settings-portrait-dark.png"
@@ -461,7 +482,7 @@ jobs:
             shot "$ipad" dark "$mode" "$out/after-ipad-${mode}-portrait-dark.png"
             assert_orientation "$out/after-ipad-${mode}-portrait-dark.png" portrait
           done
-          set_orientation "$ipad" landscapeLeft
+          ensure_orientation "$ipad" landscape
           for mode in empty library hostsheet settings stream; do
             shot "$ipad" dark "$mode" "$out/after-ipad-${mode}-landscape-dark.png"
             assert_orientation "$out/after-ipad-${mode}-landscape-dark.png" landscape
