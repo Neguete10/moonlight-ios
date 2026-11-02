@@ -73,7 +73,7 @@
         // Special case handling an audio capture error which GFE doesn't
         // provide any useful status message for.
         self.statusCode = 418;
-        self.statusMessage = @"Missing audio capture device. Reinstalling GeForce Experience should resolve this error.";
+        self.statusMessage = @"Missing audio capture device on the host. Check that Sunshine can capture audio, then try again.";
     }
 
     node = node->children;

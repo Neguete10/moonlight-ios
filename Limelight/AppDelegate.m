@@ -7,6 +7,9 @@
 //
 
 #import "AppDelegate.h"
+#if !TARGET_OS_TV
+#import "SceneDelegate.h"
+#endif
 
 @implementation AppDelegate
 
@@ -17,27 +20,47 @@
 static NSOperationQueue* mainQueue;
 
 #if TARGET_OS_TV
-static NSString* DB_NAME = @"Moonlight_tvOS.bin";
+// Twilight's own store. The bundle id already isolates this container from
+// Moonlight. The filename is not Moonlight's, and it is not the Mac app's
+// QSettings domain.
+static NSString* DB_NAME = @"Twilight_tvOS.bin";
 #else
-static NSString* DB_NAME = @"Limelight_iOS.sqlite";
+static NSString* DB_NAME = @"Twilight.sqlite";
 #endif
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
-#if !TARGET_OS_TV
-    UIApplicationShortcutItem* shortcut = [launchOptions valueForKey:UIApplicationLaunchOptionsShortcutItemKey];
-    if (shortcut != nil) {
-        _pcUuidToLoad = (NSString*)[shortcut.userInfo objectForKey:@"UUID"];
-    }
-#endif
+    // Home-screen shortcuts on iOS are delivered to SceneDelegate. This
+    // launch-options path is not called once a scene manifest is present.
     return YES;
 }
 
 #if !TARGET_OS_TV
-- (void)application:(UIApplication *)application performActionForShortcutItem:(UIApplicationShortcutItem *)shortcutItem completionHandler:(void (^)(BOOL succeeded))completionHandler {
-    _pcUuidToLoad = (NSString*)[shortcutItem.userInfo objectForKey:@"UUID"];
-    _shortcutCompletionHandler = completionHandler;
+- (UISceneConfiguration *)application:(UIApplication *)application configurationForConnectingSceneSession:(UISceneSession *)connectingSceneSession options:(UISceneConnectionOptions *)options {
+    UISceneConfiguration *configuration = [[UISceneConfiguration alloc] initWithName:@"Default Configuration" sessionRole:connectingSceneSession.role];
+    configuration.delegateClass = [SceneDelegate class];
+    return configuration;
 }
 #endif
+
++ (UIWindow *)currentWindow {
+    AppDelegate *delegate = (AppDelegate *)UIApplication.sharedApplication.delegate;
+    if ([delegate isKindOfClass:[AppDelegate class]] && delegate.window != nil) {
+        return delegate.window;
+    }
+    if (@available(iOS 13.0, tvOS 13.0, *)) {
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) {
+                continue;
+            }
+            for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+                if (window.isKeyWindow) {
+                    return window;
+                }
+            }
+        }
+    }
+    return nil;
+}
 
 - (void)applicationWillResignActive:(UIApplication *)application
 {

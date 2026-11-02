@@ -9,6 +9,10 @@
 #import "VideoDecoderRenderer.h"
 #import "StreamConfiguration.h"
 
+#include <stdint.h>
+
+void TwilightGetCumulativeVideoCounts(uint32_t *totalFrames, uint32_t *droppedFrames);
+
 #define CONN_TEST_SERVER "ios.conntest.moonlight-stream.org"
 
 typedef struct {
@@ -21,6 +25,7 @@ typedef struct {
     int framesWithHostProcessingLatency;
     int maxHostProcessingLatency;
     int minHostProcessingLatency;
+    unsigned long long receivedVideoBytes;
 } video_stats_t;
 
 @interface Connection : NSOperation <NSStreamDelegate>
