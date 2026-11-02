@@ -29,6 +29,8 @@ typedef void (^TwilightAction)(void);
 + (UIColor *)stroke;
 + (UIColor *)glass;
 + (UIColor *)elevated;
+/// Opaque surface for sheets and menus. Translucent fills let the page behind bleed through.
++ (UIColor *)sheetBackground;
 + (UIColor *)sidebar;
 + (UIColor *)scrim;
 + (UIColor *)selection;
@@ -67,6 +69,13 @@ typedef void (^TwilightAction)(void);
                          quit:(nullable TwilightAction)quit
                          host:(nullable TwilightAction)host
                          pair:(nullable TwilightAction)pair;
+
++ (CGFloat)heightForWidth:(CGFloat)width
+                  leading:(CGFloat)leading
+                 trailing:(CGFloat)trailing
+               showsTitle:(BOOL)showsTitle
+                     pair:(BOOL)pair
+                  desktop:(BOOL)desktop;
 
 @end
 

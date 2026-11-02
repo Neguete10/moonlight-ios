@@ -299,10 +299,6 @@ jobs:
           set -euo pipefail
           out="$GITHUB_WORKSPACE/ui-screenshots"
           mkdir -p "$out"
-          git fetch origin cursor/twilight-ios-phase4-271e
-          before_sha="$(git rev-parse origin/cursor/twilight-ios-phase4-271e)"
-          git worktree add --detach /tmp/twilight-before "$before_sha"
-          git -C /tmp/twilight-before submodule update --init --recursive
 
           python3 - << 'PY'
           import json, subprocess, sys
@@ -327,14 +323,20 @@ jobs:
           runtime = sys.argv[1]
           types = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devicetypes", "-j"]))
           names = [d.get("name", "") for d in types.get("devicetypes", [])]
-          def pick(prefixes):
+          def pick(exact, prefixes):
+              for name in exact:
+                  if name in names:
+                      return name
               for prefix in prefixes:
                   for name in names:
                       if name.startswith(prefix):
                           return name
               return None
-          iphone = pick(["iPhone 17", "iPhone 16", "iPhone"])
-          ipad = pick(["iPad Pro 13", "iPad Pro 11", "iPad"])
+          iphone = pick(["iPhone 17 Pro"], ["iPhone 17", "iPhone 16 Pro", "iPhone 16", "iPhone"])
+          ipad = pick(
+              ["iPad Pro 13-inch (M5)", "iPad Pro 13-inch (M4)"],
+              ["iPad Pro 13", "iPad Pro 11", "iPad"],
+          )
           if not iphone or not ipad:
               sys.exit("Could not find an iPhone and iPad simulator device type")
           open("/tmp/twilight-iphone-type", "w").write(iphone)
@@ -355,7 +357,13 @@ jobs:
             find "$dd/Build/Products" -name Moonlight.app -path '*iphonesimulator*' | head -1 > "$appfile" || true
           }
 
-          echo "Building the phase 4 UI for the before shots"
+          # Before is the parent of this commit: the phase 5 shell with the
+          # header, tile, host sheet, and settings bugs. After is this fix.
+          before_sha="$(git rev-parse HEAD^)"
+          rm -rf /tmp/twilight-before
+          git worktree add --detach /tmp/twilight-before "$before_sha"
+          git -C /tmp/twilight-before submodule update --init --recursive
+          echo "Building the previous UI for the before shots ($before_sha)"
           build_app /tmp/twilight-before /tmp/dd-before /tmp/twilight-before-app
           echo "Building this commit for the after shots"
           build_app "$GITHUB_WORKSPACE" /tmp/dd-after /tmp/twilight-after-app
@@ -376,21 +384,26 @@ jobs:
             printf '%s' "$udid" > /tmp/twilight-booted-udid
           }
 
-          shot() {
+          install_app() {
             local udid="$1"
             local app="$2"
-            local appearance="$3"
-            local mode="$4"
-            local file="$5"
-            xcrun simctl ui "$udid" appearance "$appearance" || true
             xcrun simctl terminate "$udid" io.github.neguete10.twilight.ios || true
             xcrun simctl install "$udid" "$app"
+          }
+
+          shot() {
+            local udid="$1"
+            local appearance="$2"
+            local mode="$3"
+            local file="$4"
+            xcrun simctl ui "$udid" appearance "$appearance" || true
+            xcrun simctl terminate "$udid" io.github.neguete10.twilight.ios || true
             if [ -n "$mode" ]; then
               SIMCTL_CHILD_TWILIGHT_SCREENSHOT="$mode" xcrun simctl launch "$udid" io.github.neguete10.twilight.ios
             else
               xcrun simctl launch "$udid" io.github.neguete10.twilight.ios
             fi
-            sleep 5
+            sleep 4
             xcrun simctl io "$udid" screenshot "$file"
             echo "Wrote $file"
           }
@@ -407,25 +420,40 @@ jobs:
 
           boot_device "Twilight iPhone" "$(cat /tmp/twilight-iphone-type)"
           iphone="$(cat /tmp/twilight-booted-udid)"
-          shot "$iphone" "$before_app" light "" "$out/before-iphone-hosts-light.png"
-          shot "$iphone" "$before_app" dark "" "$out/before-iphone-hosts-dark.png"
-          shot "$iphone" "$after_app" light hosts "$out/after-iphone-hosts-light.png"
-          shot "$iphone" "$after_app" dark hosts "$out/after-iphone-hosts-dark.png"
-          shot "$iphone" "$after_app" light library "$out/after-iphone-library-light.png"
-          shot "$iphone" "$after_app" dark library "$out/after-iphone-library-dark.png"
-          rotate_simulator 123
-          xcrun simctl io "$iphone" screenshot "$out/after-iphone-library-landscape-light.png"
-          echo "Wrote $out/after-iphone-library-landscape-light.png"
+          install_app "$iphone" "$before_app"
+          shot "$iphone" dark library "$out/before-iphone-library-portrait-dark.png"
+          shot "$iphone" dark settings "$out/before-iphone-settings-portrait-dark.png"
+          shot "$iphone" dark hosts "$out/before-iphone-hosts-portrait-dark.png"
           rotate_simulator 124
-          shot "$iphone" "$after_app" light settings "$out/after-iphone-settings-light.png"
-          shot "$iphone" "$after_app" light loading "$out/after-iphone-loading-light.png"
+          shot "$iphone" dark library "$out/before-iphone-library-landscape-dark.png"
+          shot "$iphone" dark settings "$out/before-iphone-settings-landscape-dark.png"
+          rotate_simulator 123
+
+          install_app "$iphone" "$after_app"
+          for mode in empty library hosts hostsheet settings pairing addhost unpaired loading stream; do
+            shot "$iphone" dark "$mode" "$out/after-iphone-${mode}-portrait-dark.png"
+          done
+          shot "$iphone" light library "$out/after-iphone-library-portrait-light.png"
+          shot "$iphone" light settings "$out/after-iphone-settings-portrait-light.png"
+          rotate_simulator 124
+          for mode in empty library hosts hostsheet settings pairing addhost unpaired loading stream; do
+            shot "$iphone" dark "$mode" "$out/after-iphone-${mode}-landscape-dark.png"
+          done
           xcrun simctl shutdown "$iphone" || true
 
           boot_device "Twilight iPad" "$(cat /tmp/twilight-ipad-type)"
           ipad="$(cat /tmp/twilight-booted-udid)"
-          shot "$ipad" "$before_app" light "" "$out/before-ipad-hosts-light.png"
-          shot "$ipad" "$after_app" light hosts "$out/after-ipad-hosts-light.png"
-          shot "$ipad" "$after_app" light library "$out/after-ipad-library-light.png"
+          install_app "$ipad" "$before_app"
+          shot "$ipad" dark library "$out/before-ipad-library-portrait-dark.png"
+          shot "$ipad" dark settings "$out/before-ipad-settings-portrait-dark.png"
+          install_app "$ipad" "$after_app"
+          for mode in empty library hostsheet settings stream; do
+            shot "$ipad" dark "$mode" "$out/after-ipad-${mode}-portrait-dark.png"
+          done
+          rotate_simulator 124
+          for mode in empty library hostsheet settings stream; do
+            shot "$ipad" dark "$mode" "$out/after-ipad-${mode}-landscape-dark.png"
+          done
           xcrun simctl shutdown "$ipad" || true
 
       - name: Upload screenshots

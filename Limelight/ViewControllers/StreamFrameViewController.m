@@ -92,11 +92,37 @@
 #endif
 
 
+- (BOOL)screenshotStreamFixture {
+#if DEBUG && !TARGET_OS_TV
+    const char *mode = getenv("TWILIGHT_SCREENSHOT");
+    if (mode == NULL) {
+        return NO;
+    }
+    return [[NSString stringWithUTF8String:mode] isEqualToString:@"stream"];
+#else
+    return NO;
+#endif
+}
+
+- (void)installScreenshotStreamChrome {
+    self.view.backgroundColor = [TwilightTheme background];
+    _hudBar = [[TwilightHudBar alloc] initWithFrame:CGRectMake(0, 0, 320, 44)];
+    [_hudBar setFps:@"60" bitrate:@"18.0 Mbps" rtt:@"4 ms"];
+    [self.view addSubview:_hudBar];
+    [self layoutHudBar];
+    [self presentEndStreamChoices];
+}
+
 - (void)viewDidLoad
 {
     [super viewDidLoad];
     
     [self.navigationController setNavigationBarHidden:YES animated:YES];
+
+    if ([self screenshotStreamFixture]) {
+        [self installScreenshotStreamChrome];
+        return;
+    }
     
     [UIApplication sharedApplication].idleTimerDisabled = YES;
     
@@ -297,29 +323,40 @@
 }
 
 - (void)layoutLaunchCard {
-    if (_launchCard == nil) {
+    if (_launchCard == nil || _launchCover == nil) {
         return;
     }
-    CGSize size = [_launchCard sizeThatFits:CGSizeMake(self.view.bounds.size.width - 64, 220)];
+    UIEdgeInsets insets = self.view.safeAreaInsets;
+    CGFloat maxW = self.view.bounds.size.width - insets.left - insets.right - 48;
+    maxW = MAX(220, MIN(440, maxW));
+    CGSize size = [_launchCard sizeThatFits:CGSizeMake(maxW, 220)];
     _launchCard.bounds = (CGRect){CGPointZero, size};
-    _launchCard.center = CGPointMake(CGRectGetMidX(_launchCover.bounds), CGRectGetMidY(_launchCover.bounds));
+    CGRect safe = UIEdgeInsetsInsetRect(_launchCover.bounds, insets);
+    _launchCard.center = CGPointMake(CGRectGetMidX(safe), CGRectGetMidY(safe));
 }
 
 - (void)layoutHudBar {
     if (_hudBar == nil) {
         return;
     }
-    CGFloat width = MIN(460, self.view.bounds.size.width - 24);
-    CGFloat top = self.view.safeAreaInsets.top + 12;
-    _hudBar.frame = CGRectMake((self.view.bounds.size.width - width) / 2.0, top, width, 44);
+    UIEdgeInsets insets = self.view.safeAreaInsets;
+    CGFloat available = self.view.bounds.size.width - insets.left - insets.right - 24;
+    CGFloat width = MIN(460, MAX(200, available));
+    CGFloat top = insets.top + 12;
+    CGFloat x = insets.left + (self.view.bounds.size.width - insets.left - insets.right - width) / 2.0;
+    _hudBar.frame = CGRectMake(x, top, width, 44);
 }
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     [self layoutLaunchCard];
     [self layoutHudBar];
+    [self layoutEndMenu];
     if (_endMenu != nil) {
         [self.view bringSubviewToFront:_endMenu];
+    }
+    if (_hudBar != nil) {
+        [self.view bringSubviewToFront:_hudBar];
     }
 }
 
@@ -361,7 +398,15 @@
                                            _overlayView.frame.size.height)];
         [_overlayView setText:text];
         [_overlayView sizeToFit];
-        [_overlayView setCenter:CGPointMake(self.view.frame.size.width / 2, _overlayView.frame.size.height / 2)];
+        UIEdgeInsets insets = self.view.safeAreaInsets;
+        CGFloat maxW = self.view.bounds.size.width - insets.left - insets.right - 24;
+        CGRect frame = _overlayView.frame;
+        if (frame.size.width > maxW) {
+            frame.size.width = MAX(120, maxW);
+        }
+        frame.origin.x = insets.left + (self.view.bounds.size.width - insets.left - insets.right - frame.size.width) / 2.0;
+        frame.origin.y = insets.top + 8;
+        _overlayView.frame = frame;
         [_overlayView setHidden:NO];
     }
     else {
@@ -472,6 +517,50 @@
     return button;
 }
 
+- (void)layoutEndMenu {
+    if (_endMenu == nil) {
+        return;
+    }
+    _endMenu.frame = self.view.bounds;
+    UIView *scrim = [_endMenu viewWithTag:8700];
+    scrim.frame = _endMenu.bounds;
+    UIEdgeInsets insets = self.view.safeAreaInsets;
+    CGFloat cardW = MIN(420, self.view.bounds.size.width - insets.left - insets.right - 32);
+    cardW = MAX(260, cardW);
+    CGFloat topLimit = insets.top + (_hudBar != nil && !_hudBar.hidden ? 64 : 0);
+    CGFloat cardH = 248;
+    CGFloat availableH = self.view.bounds.size.height - topLimit - insets.bottom - 16;
+    if (cardH > availableH) {
+        cardH = MAX(180, availableH);
+    }
+    UIView *card = [_endMenu viewWithTag:8801];
+    card.frame = CGRectMake(insets.left + (self.view.bounds.size.width - insets.left - insets.right - cardW) / 2.0,
+                            topLimit + MAX(0, (availableH - cardH) / 2.0),
+                            cardW,
+                            cardH);
+    UILabel *title = (UILabel *)[card viewWithTag:8805];
+    title.frame = CGRectMake(20, 16, cardW - 40, 22);
+    CGFloat buttonW = cardW - 32;
+    CGFloat buttonH = 44;
+    CGFloat gap = 8;
+    CGFloat buttonsTop = 52;
+    CGFloat needed = buttonsTop + buttonH * 3 + gap * 2 + 16;
+    if (needed > cardH) {
+        buttonH = 36;
+        gap = 6;
+        needed = buttonsTop + buttonH * 3 + gap * 2 + 12;
+    }
+    if (needed > cardH && cardH > 40) {
+        buttonH = MAX(32, floor((cardH - buttonsTop - 12 - gap * 2) / 3.0));
+    }
+    UIView *end = [card viewWithTag:8802];
+    UIView *quit = [card viewWithTag:8803];
+    UIView *cancel = [card viewWithTag:8804];
+    end.frame = CGRectMake(16, buttonsTop, buttonW, buttonH);
+    quit.frame = CGRectMake(16, buttonsTop + buttonH + gap, buttonW, buttonH);
+    cancel.frame = CGRectMake(16, buttonsTop + (buttonH + gap) * 2, buttonW, buttonH);
+}
+
 - (void)presentEndStreamChoices {
     if (_endMenuPresented || _streamFinished) {
         return;
@@ -480,31 +569,38 @@
     UIView *menu = [[UIView alloc] initWithFrame:self.view.bounds];
     menu.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     UIView *scrim = [[UIView alloc] initWithFrame:menu.bounds];
+    scrim.tag = 8700;
     scrim.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     scrim.backgroundColor = [TwilightTheme scrim];
     [scrim addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissEndMenu)]];
     [menu addSubview:scrim];
 
-    UIView *card = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 320, 220)];
-    card.backgroundColor = [TwilightTheme elevated];
+    UIView *card = [[UIView alloc] initWithFrame:CGRectZero];
+    card.tag = 8801;
+    card.backgroundColor = [TwilightTheme sheetBackground];
+    card.opaque = YES;
     card.layer.cornerRadius = 18;
     [TwilightTheme applyBorderToLayer:card.layer width:1 traitCollection:self.traitCollection];
-    card.center = CGPointMake(CGRectGetMidX(menu.bounds), CGRectGetMidY(menu.bounds));
-    card.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
 
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(20, 16, 280, 22)];
+    UILabel *title = [[UILabel alloc] init];
+    title.tag = 8805;
     title.text = @"End stream";
     title.font = [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightSemibold];
     title.textColor = [TwilightTheme secondary];
     [card addSubview:title];
 
-    UIButton *end = [self endMenuButton:@"End Stream" color:[UIColor clearColor] action:@selector(endMenuEndStream)];
-    end.frame = CGRectMake(12, 48, 296, 40);
-    UIButton *quit = [self endMenuButton:@"End Stream and Quit App" color:[UIColor clearColor] action:@selector(endMenuQuitApp)];
+    UIButton *end = [self endMenuButton:@"End Stream" color:[TwilightTheme fillStrong] action:@selector(endMenuEndStream)];
+    end.tag = 8802;
+    UIButton *quit = [self endMenuButton:@"End Stream and Quit App" color:[TwilightTheme fillStrong] action:@selector(endMenuQuitApp)];
+    quit.tag = 8803;
     [quit setTitleColor:[TwilightTheme danger] forState:UIControlStateNormal];
-    quit.frame = CGRectMake(12, 92, 296, 40);
+    quit.titleLabel.adjustsFontSizeToFitWidth = YES;
+    quit.titleLabel.minimumScaleFactor = 0.75;
     UIButton *cancel = [self endMenuButton:@"Cancel" color:[UIColor clearColor] action:@selector(dismissEndMenu)];
-    cancel.frame = CGRectMake(12, 136, 296, 40);
+    cancel.tag = 8804;
+    end.titleLabel.adjustsFontSizeToFitWidth = YES;
+    end.titleLabel.minimumScaleFactor = 0.75;
+    cancel.titleLabel.adjustsFontSizeToFitWidth = YES;
     _endMenuFirstButton = end;
     [card addSubview:end];
     [card addSubview:quit];
@@ -512,6 +608,7 @@
     [menu addSubview:card];
     _endMenu = menu;
     [self.view addSubview:menu];
+    [self layoutEndMenu];
 #if TARGET_OS_TV
     [self setNeedsFocusUpdate];
     [self updateFocusIfNeeded];

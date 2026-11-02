@@ -16,12 +16,163 @@
 #import <VideoToolbox/VideoToolbox.h>
 #import <AVFoundation/AVFoundation.h>
 
+@interface TwilightSegmentWrap : UIView
+- (instancetype)initWithControl:(UISegmentedControl *)control;
+- (CGFloat)layoutWithinWidth:(CGFloat)width;
+@end
+
+@implementation TwilightSegmentWrap {
+    __weak UISegmentedControl *_control;
+    NSMutableArray<UIButton *> *_buttons;
+}
+
+- (instancetype)initWithControl:(UISegmentedControl *)control {
+    self = [super initWithFrame:CGRectZero];
+    if (self == nil) {
+        return nil;
+    }
+    _control = control;
+    _buttons = [NSMutableArray array];
+    self.backgroundColor = [UIColor clearColor];
+    return self;
+}
+
+- (void)rebuildIfNeeded {
+    if ((NSInteger)_buttons.count == _control.numberOfSegments) {
+        return;
+    }
+    for (UIButton *button in _buttons) {
+        [button removeFromSuperview];
+    }
+    [_buttons removeAllObjects];
+    for (NSInteger i = 0; i < _control.numberOfSegments; i++) {
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+        button.tag = i;
+        button.titleLabel.font = [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightSemibold];
+        button.titleLabel.adjustsFontSizeToFitWidth = YES;
+        button.titleLabel.minimumScaleFactor = 0.65;
+        button.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+        button.layer.cornerRadius = 10;
+        button.clipsToBounds = YES;
+        [button addTarget:self action:@selector(tapped:) forControlEvents:UIControlEventTouchUpInside];
+        [self addSubview:button];
+        [_buttons addObject:button];
+    }
+}
+
+- (CGFloat)naturalWidthForTitle:(NSString *)title font:(UIFont *)font {
+    CGSize size = [title sizeWithAttributes:@{ NSFontAttributeName: font }];
+    return MIN(240, MAX(76, ceil(size.width) + 28));
+}
+
+- (CGFloat)layoutWithinWidth:(CGFloat)width {
+    [self rebuildIfNeeded];
+    if (width < 1 || _buttons.count == 0 || _control == nil) {
+        return 0;
+    }
+    UIFont *font = _buttons.firstObject.titleLabel.font;
+    NSMutableArray<NSNumber *> *naturals = [NSMutableArray array];
+    CGFloat sum = 0;
+    CGFloat gap = 8;
+    for (NSInteger i = 0; i < (NSInteger)_buttons.count; i++) {
+        NSString *title = [_control titleForSegmentAtIndex:i] ?: @"";
+        [_buttons[i] setTitle:title forState:UIControlStateNormal];
+        CGFloat natural = [self naturalWidthForTitle:title font:font];
+        [naturals addObject:@(natural)];
+        sum += natural;
+    }
+    if (_buttons.count > 1) {
+        sum += gap * (_buttons.count - 1);
+    }
+
+    NSMutableArray<NSMutableArray<NSNumber *> *> *rows = [NSMutableArray array];
+    if (sum <= width + 0.5) {
+        NSMutableArray<NSNumber *> *row = [NSMutableArray array];
+        for (NSInteger i = 0; i < (NSInteger)_buttons.count; i++) {
+            [row addObject:@(i)];
+        }
+        [rows addObject:row];
+    }
+    else {
+        NSMutableArray<NSNumber *> *row = [NSMutableArray array];
+        CGFloat used = 0;
+        for (NSInteger i = 0; i < (NSInteger)_buttons.count; i++) {
+            CGFloat natural = naturals[i].doubleValue;
+            CGFloat next = used == 0 ? natural : used + gap + natural;
+            if (used > 0 && next > width) {
+                [rows addObject:row];
+                row = [NSMutableArray array];
+                used = 0;
+            }
+            [row addObject:@(i)];
+            used = used == 0 ? natural : used + gap + natural;
+        }
+        if (row.count > 0) {
+            [rows addObject:row];
+        }
+    }
+
+    CGFloat rowH = 36;
+    CGFloat y = 0;
+    BOOL enabled = _control.enabled;
+    for (NSMutableArray<NSNumber *> *row in rows) {
+        CGFloat naturalSum = 0;
+        for (NSNumber *index in row) {
+            naturalSum += naturals[index.integerValue].doubleValue;
+        }
+        CGFloat gaps = gap * (row.count > 0 ? row.count - 1 : 0);
+        CGFloat extra = width - naturalSum - gaps;
+        if (extra < 0) {
+            extra = 0;
+        }
+        CGFloat share = row.count > 0 ? extra / row.count : 0;
+        CGFloat x = 0;
+        for (NSNumber *indexNumber in row) {
+            NSInteger index = indexNumber.integerValue;
+            UIButton *button = _buttons[index];
+            CGFloat buttonWidth = MIN(width, naturals[index].doubleValue + share);
+            button.frame = CGRectMake(x, y, buttonWidth, rowH);
+            x += buttonWidth + gap;
+            BOOL selected = _control.selectedSegmentIndex == index;
+            BOOL segmentEnabled = enabled && [_control isEnabledForSegmentAtIndex:index];
+            button.enabled = segmentEnabled;
+            button.backgroundColor = selected ? [TwilightTheme accent] : [TwilightTheme fillStrong];
+            UIColor *ink = selected ? [TwilightTheme accentInk] : [TwilightTheme ink];
+            [button setTitleColor:ink forState:UIControlStateNormal];
+            [button setTitleColor:ink forState:UIControlStateDisabled];
+            button.alpha = segmentEnabled ? 1 : 0.45;
+            if (selected) {
+                button.layer.borderWidth = 0;
+            }
+            else {
+                [TwilightTheme applyBorderToLayer:button.layer width:1 traitCollection:self.traitCollection];
+            }
+        }
+        y += rowH + gap;
+    }
+    return MAX(rowH, y - gap);
+}
+
+- (void)tapped:(UIButton *)button {
+    if (_control == nil || !_control.enabled || ![_control isEnabledForSegmentAtIndex:button.tag]) {
+        return;
+    }
+    _control.selectedSegmentIndex = button.tag;
+    [_control sendActionsForControlEvents:UIControlEventValueChanged];
+    [self layoutWithinWidth:self.bounds.size.width];
+}
+
+@end
+
 @implementation SettingsViewController {
     NSInteger _bitrate;
     NSInteger _lastSelectedResolutionIndex;
     UISegmentedControl *_adaptiveBitrateSelector;
     UISegmentedControl *_microphoneSelector;
     UISegmentedControl *_quitAppAfterSelector;
+    UILabel *_versionLabel;
+    NSArray<UIView *> *_settingsRows;
+    BOOL _settingsReady;
 }
 
 - (UISegmentedControl *)addYesNoControlTitled:(NSString *)title below:(UIView *)anchor {
@@ -120,50 +271,146 @@ CGSize resolutionTable[RESOLUTION_TABLE_SIZE];
     return i - 1;
 }
 
-// This view is rooted at a ScrollView. To make it scrollable,
-// we'll update content size here.
--(void)viewDidLayoutSubviews {
-    CGFloat highestViewY = 0;
-    
-    // Enumerate the scroll view's subviews looking for the
-    // highest view Y value to set our scroll view's content
-    // size.
-    for (UIView* view in self.scrollView.subviews) {
-        // UIScrollViews have 2 default child views
-        // which represent the horizontal and vertical scrolling
-        // indicators. Ignore any views we don't recognize.
-        if (![view isKindOfClass:[UILabel class]] &&
-            ![view isKindOfClass:[UISegmentedControl class]] &&
-            ![view isKindOfClass:[UISlider class]] &&
-            ![view isKindOfClass:[UIButton class]]) {
-            continue;
-        }
-        
-        CGFloat currentViewY = view.frame.origin.y + view.frame.size.height;
-        if (currentViewY > highestViewY) {
-            highestViewY = currentViewY;
-        }
-    }
-    
-    // Add a bit of padding so the view doesn't end right at the button of the display
-    self.scrollView.contentSize = CGSizeMake(self.scrollView.contentSize.width,
-                                             highestViewY + 20);
+- (BOOL)isSettingsRow:(UIView *)view {
+    return [view isKindOfClass:[UILabel class]] ||
+        [view isKindOfClass:[UISegmentedControl class]] ||
+        [view isKindOfClass:[UISlider class]] ||
+        view == self.resolutionDisplayView;
 }
 
-// Adjust the subviews for the safe area on the iPhone X.
-- (void)viewSafeAreaInsetsDidChange {
-    [super viewSafeAreaInsetsDidChange];
-    
+- (void)installWrappedSettings {
+    if (!_settingsReady || _settingsRows != nil || self.scrollView == nil) {
+        return;
+    }
+    // Adding the wraps can layout immediately. A sentinel stops that pass
+    // from installing a second copy before this one finishes.
+    _settingsRows = @[];
     if (@available(iOS 11.0, *)) {
-        for (UIView* view in self.view.subviews) {
-            // HACK: The official safe area is much too large for our purposes
-            // so we'll just use the presence of any safe area to indicate we should
-            // pad by 20.
-            if (self.view.safeAreaInsets.left >= 20 || self.view.safeAreaInsets.right >= 20) {
-                view.frame = CGRectMake(view.frame.origin.x + 20, view.frame.origin.y, view.frame.size.width, view.frame.size.height);
-            }
+        self.scrollView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    }
+    self.scrollView.clipsToBounds = YES;
+
+    _versionLabel = [[UILabel alloc] init];
+    _versionLabel.tag = 7702;
+    _versionLabel.textAlignment = NSTextAlignmentCenter;
+    _versionLabel.numberOfLines = 0;
+    _versionLabel.textColor = [TwilightTheme secondary];
+    _versionLabel.font = [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightRegular];
+    _versionLabel.adjustsFontForContentSizeCategory = YES;
+    NSString *version = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+    NSString *build = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"];
+    if (version.length == 0) {
+        version = @"—";
+    }
+    if (build.length == 0) {
+        build = @"—";
+    }
+    _versionLabel.text = [NSString stringWithFormat:@"Version %@ (build %@)", version, build];
+    [self.scrollView addSubview:_versionLabel];
+
+    NSMutableArray<UIView *> *rows = [NSMutableArray array];
+    for (UIView *view in self.scrollView.subviews) {
+        if (view == _versionLabel) {
+            continue;
+        }
+        if ([self isSettingsRow:view]) {
+            [rows addObject:view];
         }
     }
+    [rows sortUsingComparator:^NSComparisonResult(UIView *a, UIView *b) {
+        if (a.frame.origin.y < b.frame.origin.y - 0.5) {
+            return NSOrderedAscending;
+        }
+        if (a.frame.origin.y > b.frame.origin.y + 0.5) {
+            return NSOrderedDescending;
+        }
+        return NSOrderedSame;
+    }];
+    NSUInteger quitIndex = _quitAppAfterSelector != nil ? [rows indexOfObject:_quitAppAfterSelector] : NSNotFound;
+    if (quitIndex != NSNotFound) {
+        [rows insertObject:_versionLabel atIndex:quitIndex + 1];
+    }
+    else {
+        [rows addObject:_versionLabel];
+    }
+    for (NSUInteger i = 0; i < rows.count; i++) {
+        UIView *view = rows[i];
+        if (![view isKindOfClass:[UISegmentedControl class]]) {
+            continue;
+        }
+        TwilightSegmentWrap *wrap = [[TwilightSegmentWrap alloc] initWithControl:(UISegmentedControl *)view];
+        view.hidden = YES;
+        view.frame = CGRectZero;
+        [self.scrollView addSubview:wrap];
+        rows[i] = wrap;
+    }
+    _settingsRows = rows;
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self installWrappedSettings];
+    if (_settingsRows == nil || self.scrollView == nil) {
+        return;
+    }
+    UIEdgeInsets safe = self.view.safeAreaInsets;
+    CGFloat margin = 16;
+    CGFloat x = safe.left + margin;
+    CGFloat width = self.scrollView.bounds.size.width - safe.left - safe.right - margin * 2;
+    if (width < 120) {
+        return;
+    }
+
+    CGFloat y = safe.top + 12;
+    BOOL first = YES;
+    for (UIView *view in _settingsRows) {
+        CGFloat gap = 18;
+        if (first) {
+            gap = 0;
+            first = NO;
+        }
+        else if (view == _versionLabel) {
+            gap = 28;
+        }
+        else if ([view isKindOfClass:[UILabel class]] && view.tag == 2) {
+            gap = 4;
+        }
+        else if ([view isKindOfClass:[UILabel class]]) {
+            gap = 22;
+        }
+        y += gap;
+
+        CGFloat height = 32;
+        if ([view isKindOfClass:[TwilightSegmentWrap class]]) {
+            height = [(TwilightSegmentWrap *)view layoutWithinWidth:width];
+        }
+        else if ([view isKindOfClass:[UILabel class]]) {
+            UILabel *label = (UILabel *)view;
+            label.numberOfLines = (label.tag == 2 || label == _versionLabel) ? 0 : 1;
+            CGSize size = [label sizeThatFits:CGSizeMake(width, 240)];
+            height = MAX(label == _versionLabel ? 18 : 22, ceil(size.height));
+            if (label == _versionLabel) {
+                label.textAlignment = NSTextAlignmentCenter;
+                label.textColor = [TwilightTheme secondary];
+                label.font = [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightRegular];
+            }
+        }
+        else if (view == self.resolutionDisplayView) {
+            height = 44;
+        }
+        else if ([view isKindOfClass:[UISlider class]]) {
+            height = 36;
+        }
+        view.frame = CGRectMake(x, y, width, MAX(1, height));
+        y += view.frame.size.height;
+    }
+    [self updateResolutionDisplayViewText];
+    self.scrollView.contentSize = CGSizeMake(self.scrollView.bounds.size.width, y + safe.bottom + 28);
+}
+
+- (void)viewSafeAreaInsetsDidChange {
+    [super viewSafeAreaInsetsDidChange];
+    [self.view setNeedsLayout];
 }
 
 BOOL isCustomResolution(CGSize res) {
@@ -327,6 +574,8 @@ BOOL isCustomResolution(CGSize res) {
     [self updateBitrateText];
     [self updateResolutionDisplayViewText];
     [self applyTwilightChrome];
+    _settingsReady = YES;
+    [self installWrappedSettings];
 }
 
 - (void)removeCodecSegmentTitled:(NSString *)title {
@@ -371,6 +620,7 @@ BOOL isCustomResolution(CGSize res) {
 - (void) touchModeChanged {
     // Disable on-screen controls in absolute touch mode
     [self.onscreenControlSelector setEnabled:[self.touchModeSelector selectedSegmentIndex] == 0];
+    [self.view setNeedsLayout];
 }
 
 - (void) updateBitrate {
@@ -557,8 +807,17 @@ BOOL isCustomResolution(CGSize res) {
     label2.text = [NSString stringWithFormat:@"%ld x %ld", (long)width, (long)height];
     label2.textColor = [TwilightTheme ink];
     label2.font = [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightSemibold];
+    label2.textAlignment = NSTextAlignmentRight;
+    label2.adjustsFontSizeToFitWidth = YES;
+    label2.minimumScaleFactor = 0.7;
     [label2 sizeToFit];
-    label2.frame = CGRectMake(viewFrameWidth - label2.frame.size.width - padding, (viewFrameHeight - label2.frame.size.height) / 2, label2.frame.size.width, label2.frame.size.height);
+    CGFloat inner = MAX(0, viewFrameWidth - padding * 2);
+    CGFloat valueW = MIN(label2.frame.size.width, MAX(72, inner * 0.46));
+    CGFloat labelH = MAX(label1.frame.size.height, label2.frame.size.height);
+    CGFloat labelY = (viewFrameHeight - labelH) / 2.0;
+    label2.frame = CGRectMake(viewFrameWidth - padding - valueW, labelY, valueW, labelH);
+    label1.lineBreakMode = NSLineBreakByTruncatingTail;
+    label1.frame = CGRectMake(padding, labelY, MAX(0, inner - valueW - 8), labelH);
 
     [self.resolutionDisplayView addSubview:label1];
     [self.resolutionDisplayView addSubview:label2];

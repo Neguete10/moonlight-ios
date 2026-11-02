@@ -68,6 +68,9 @@
     UIView* _overlay;
     BOOL _hostSwitcherOpen;
     BOOL _layingOutChrome;
+    BOOL _didPinLibrary;
+    BOOL _userScrolledLibrary;
+    CGFloat _laidOutTileWidth;
 #if TARGET_OS_TV
     UITapGestureRecognizer* _menuRecognizer;
 #endif
@@ -1546,14 +1549,18 @@ static NSMutableSet* hostList;
 #endif
 
 - (CGSize)collectionView:(UICollectionView *)collectionView layout:(UICollectionViewLayout *)collectionViewLayout sizeForItemAtIndexPath:(NSIndexPath *)indexPath {
+#if TARGET_OS_TV
     return [UIAppView preferredSize];
+#else
+    return [self libraryTileSize];
+#endif
 }
 
 - (CGFloat)collectionView:(UICollectionView *)collectionView layout:(UICollectionViewLayout *)collectionViewLayout minimumLineSpacingForSectionAtIndex:(NSInteger)section {
 #if TARGET_OS_TV
     return 40;
 #else
-    return 16;
+    return 12;
 #endif
 }
 
@@ -1561,7 +1568,7 @@ static NSMutableSet* hostList;
 #if TARGET_OS_TV
     return 36;
 #else
-    return 16;
+    return 12;
 #endif
 }
 
@@ -1577,15 +1584,14 @@ static NSMutableSet* hostList;
     return CGSizeZero;
 #else
     CGFloat width = collectionView.bounds.size.width;
-    CGFloat height = 80;
     BOOL needsPair = _selectedHost.state == StateOnline && _selectedHost.pairState != PairStatePaired;
-    if (needsPair) {
-        height += 120;
-    }
-    else if (_desktopApp != nil) {
-        CGFloat textWidth = width - [self libraryLeadingInset] - [self libraryTrailingInset];
-        height += textWidth < 460 ? 226 : 164;
-    }
+    BOOL hasDesktop = !needsPair && _desktopApp != nil;
+    CGFloat height = [TwilightLibraryHeader heightForWidth:width
+                                                   leading:[self libraryLeadingInset]
+                                                  trailing:[self libraryTrailingInset]
+                                                showsTitle:YES
+                                                      pair:needsPair
+                                                   desktop:hasDesktop];
     return CGSizeMake(width, height);
 #endif
 }
@@ -1741,7 +1747,8 @@ static NSMutableSet* hostList;
 #endif
     CGFloat areaWidth = MAX(0, self.collectionView.bounds.size.width - leading - trailing);
     CGFloat centerX = leading + areaWidth / 2.0;
-    CGFloat centerY = self.collectionView.bounds.size.height / 2.0 + (_shellBar != nil ? 24 : 0);
+    CGFloat barHeight = _shellBar != nil ? CGRectGetHeight(_shellBar.bounds) : 0;
+    CGFloat centerY = (self.collectionView.bounds.size.height + barHeight) / 2.0;
     _emptySymbol.frame = CGRectMake(centerX - 18, centerY - 90, 36, 36);
     _emptyTitle.frame = CGRectMake(leading + 24, centerY - 40, areaWidth - 48, 36);
     _emptyDetail.frame = CGRectMake(leading + 32, centerY + 4, areaWidth - 64, 72);
@@ -1807,20 +1814,69 @@ static NSMutableSet* hostList;
 }
 
 #if !TARGET_OS_TV
-- (UIEdgeInsets)shellInsets {
-    UIEdgeInsets insets = self.view.safeAreaInsets;
-    UIWindow *window = self.view.window;
-    if (window == nil) {
-        return insets;
+- (CGSize)libraryTileSize {
+    CGFloat spacing = 12;
+    CGFloat available = self.collectionView.bounds.size.width - [self libraryLeadingInset] - [self libraryTrailingInset];
+    if (available < 80) {
+        available = 160;
     }
-    // Only pad the part of the status bar this view has not already cleared.
-    // Adding safeAreaInsets.top again left a blank band under the Dynamic Island.
-    CGRect inWindow = [self.view convertRect:self.view.bounds toView:window];
-    CGFloat uncoveredTop = window.safeAreaInsets.top - inWindow.origin.y;
-    CGFloat uncoveredBottom = CGRectGetMaxY(inWindow) - (CGRectGetHeight(window.bounds) - window.safeAreaInsets.bottom);
-    insets.top = uncoveredTop > 1 ? uncoveredTop : 0;
-    insets.bottom = uncoveredBottom > 1 ? uncoveredBottom : 0;
-    return insets;
+    // Two portrait covers on an iPhone, more as the width grows. Tiles stay
+    // in a band so a landscape phone and an iPad don't shrink them to stamps
+    // or stretch one cover across the screen.
+    CGFloat target = 168;
+    NSInteger columns = (NSInteger)floor((available + spacing) / (target + spacing));
+    if (columns < 2) {
+        columns = 2;
+    }
+    CGFloat tile = (available - spacing * (columns - 1)) / (CGFloat)columns;
+    while (columns > 2 && tile < 112) {
+        columns -= 1;
+        tile = (available - spacing * (columns - 1)) / (CGFloat)columns;
+    }
+    while (tile > 210 && columns < 8) {
+        columns += 1;
+        tile = (available - spacing * (columns - 1)) / (CGFloat)columns;
+    }
+    tile = floor(tile);
+    CGFloat art = floor(tile * 3.0 / 2.0);
+    return CGSizeMake(tile, art + 44);
+}
+
+- (UIEdgeInsets)shellInsets {
+    // The collection view is extended under the status bar, so its own safe
+    // area is the Dynamic Island (or the landscape notch on the sides). Don't
+    // add the window safe area on top of that — that left a blank band.
+    return self.view.safeAreaInsets;
+}
+
+- (UIView *)chromeContainer {
+    return self.view.superview != nil ? self.view.superview : self.view;
+}
+
+// The shell bar used to be a subview of the collection view, pinned with
+// contentOffset. On iOS 27 that offset is not the visible top, so the bar
+// sat mid-screen while the hero and the first tile row drew above it.
+// The bar now lives beside the collection view and stays at its top edge.
+- (void)placeChromeView:(UIView *)view visibleFrame:(CGRect)visibleFrame {
+    if (view == nil) {
+        return;
+    }
+    UIView *container = [self chromeContainer];
+    if (view.superview != container) {
+        [view removeFromSuperview];
+        [container addSubview:view];
+    }
+    if (container == self.view) {
+        visibleFrame.origin.x += self.collectionView.bounds.origin.x;
+        visibleFrame.origin.y += self.collectionView.bounds.origin.y;
+        view.frame = visibleFrame;
+        return;
+    }
+    CGRect host = self.view.frame;
+    view.frame = CGRectMake(host.origin.x + visibleFrame.origin.x,
+                            host.origin.y + visibleFrame.origin.y,
+                            visibleFrame.size.width,
+                            visibleFrame.size.height);
 }
 
 - (void)installShellBar {
@@ -1932,7 +1988,7 @@ static NSMutableSet* hostList;
     [_overlay removeFromSuperview];
     _overlay = nil;
     if ([self twilightUsesHostSidebar]) {
-        if (hostScrollView.superview != self.view) {
+        if (hostScrollView.superview == nil) {
             [self.view addSubview:hostScrollView];
         }
     }
@@ -1955,7 +2011,8 @@ static NSMutableSet* hostList;
 
     UIView *card = [[UIView alloc] init];
     card.tag = 8801;
-    card.backgroundColor = [TwilightTheme elevated];
+    card.backgroundColor = [TwilightTheme sheetBackground];
+    card.opaque = YES;
     card.layer.cornerRadius = 20;
     card.clipsToBounds = YES;
     [TwilightTheme applyBorderToLayer:card.layer width:1 traitCollection:self.traitCollection];
@@ -1980,15 +2037,16 @@ static NSMutableSet* hostList;
     UIEdgeInsets insets = [self shellInsets];
     CGFloat width = _overlay.bounds.size.width;
     CGFloat height = _overlay.bounds.size.height;
-    CGFloat cardWidth = MIN(420, width - insets.left - insets.right - 32);
-    // The overlay already covers the visible rect. Keep the card below the shell bar.
-    CGFloat top = insets.top + 56 + 12;
+    CGFloat cardWidth = MIN(440, width - insets.left - insets.right - 32);
+    cardWidth = MAX(260, cardWidth);
+    CGFloat top = insets.top + 12;
     CGFloat cardHeight = MAX(240, height - top - insets.bottom - 16);
-    card.frame = CGRectMake(width - insets.right - 16 - cardWidth, top, cardWidth, cardHeight);
+    CGFloat cardX = insets.left + (width - insets.left - insets.right - cardWidth) / 2.0;
+    card.frame = CGRectMake(cardX, top, cardWidth, cardHeight);
     UILabel *heading = (UILabel *)[card viewWithTag:8802];
     UIButton *close = (UIButton *)[card viewWithTag:8803];
-    heading.frame = CGRectMake(20, 18, cardWidth - 120, 24);
-    close.frame = CGRectMake(cardWidth - 88, 12, 72, 32);
+    heading.frame = CGRectMake(20, 16, cardWidth - 120, 24);
+    close.frame = CGRectMake(cardWidth - 20 - 72, 12, 72, 32);
 }
 
 - (void)presentHostSwitcher {
@@ -2006,12 +2064,44 @@ static NSMutableSet* hostList;
 }
 
 - (UIButton *)managerButton:(NSString *)title symbol:(NSString *)symbol danger:(BOOL)danger action:(TwilightAction)action {
-    UIButton *button = [TwilightTheme buttonWithTitle:title fill:[TwilightTheme fill] ink:danger ? [TwilightTheme danger] : [TwilightTheme ink] action:action];
-    button.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
-    button.titleEdgeInsets = UIEdgeInsetsMake(0, 12, 0, 0);
-    [button setImage:[TwilightTheme symbolNamed:symbol pointSize:16] forState:UIControlStateNormal];
-    button.tintColor = danger ? [TwilightTheme danger] : [TwilightTheme ink];
+    UIButton *button = [TwilightTheme buttonWithTitle:@"" fill:[TwilightTheme fillStrong] ink:[TwilightTheme ink] action:action];
+    button.layer.cornerRadius = 12;
+    button.clipsToBounds = YES;
+    button.accessibilityLabel = title;
+    UIColor *ink = danger ? [TwilightTheme danger] : [TwilightTheme ink];
+
+    UIImageView *icon = [[UIImageView alloc] initWithImage:[TwilightTheme symbolNamed:symbol pointSize:17]];
+    icon.tag = 8701;
+    icon.contentMode = UIViewContentModeScaleAspectFit;
+    icon.tintColor = ink;
+    [button addSubview:icon];
+
+    UILabel *label = [[UILabel alloc] init];
+    label.tag = 8702;
+    label.text = title;
+    label.font = [TwilightTheme fontForStyle:UIFontTextStyleBody weight:UIFontWeightSemibold];
+    label.adjustsFontForContentSizeCategory = YES;
+    label.adjustsFontSizeToFitWidth = YES;
+    label.minimumScaleFactor = 0.75;
+    label.textColor = ink;
+    [button addSubview:label];
     return button;
+}
+
+- (void)layoutManagerRow:(UIView *)row width:(CGFloat)width {
+    CGFloat rowH = 48;
+    CGRect frame = row.frame;
+    frame.origin.x = 0;
+    frame.size.width = width;
+    frame.size.height = rowH;
+    row.frame = frame;
+    UIView *icon = [row viewWithTag:8701];
+    UIView *label = [row viewWithTag:8702];
+    CGFloat iconSize = 22;
+    CGFloat iconX = 14;
+    icon.frame = CGRectMake(iconX, (rowH - iconSize) / 2.0, iconSize, iconSize);
+    CGFloat labelX = iconX + iconSize + 12;
+    label.frame = CGRectMake(labelX, 0, MAX(0, width - labelX - 14), rowH);
 }
 
 - (void)presentHostManager:(TemporaryHost *)host {
@@ -2234,48 +2324,60 @@ static NSMutableSet* hostList;
     UIEdgeInsets insets = [self shellInsets];
     CGFloat barHeight = insets.top + 56;
     UIEdgeInsets desired = UIEdgeInsetsMake(barHeight, 0, insets.bottom, 0);
-    if (!UIEdgeInsetsEqualToEdgeInsets(self.collectionView.contentInset, desired)) {
-        CGPoint offset = self.collectionView.contentOffset;
+    BOOL insetChanged = !UIEdgeInsetsEqualToEdgeInsets(self.collectionView.contentInset, desired);
+    if (insetChanged) {
         CGFloat previousTop = self.collectionView.contentInset.top;
-        CGFloat fromTop = offset.y + previousTop;
-        if (fromTop < 0) {
-            fromTop = -fromTop;
-        }
-        BOOL atTop = fromTop < 1.0;
+        BOOL atTop = fabs(self.collectionView.contentOffset.y + previousTop) < 2.0;
+        CGFloat shift = desired.top - previousTop;
         self.collectionView.contentInset = desired;
         self.collectionView.scrollIndicatorInsets = desired;
-        // Start the library below the shell bar. A zero offset hid the header under it.
-        if (atTop) {
+        CGPoint offset = self.collectionView.contentOffset;
+        if (atTop || !_didPinLibrary || !_userScrolledLibrary) {
             offset.y = -desired.top;
-            self.collectionView.contentOffset = offset;
         }
+        else {
+            offset.y -= shift;
+        }
+        self.collectionView.contentOffset = offset;
+        _didPinLibrary = YES;
     }
-    CGFloat offsetY = self.collectionView.contentOffset.y;
-    if (_shellBar != nil) {
-        _shellBar.frame = CGRectMake(0, offsetY, width, barHeight);
+    else if (!_userScrolledLibrary && fabs(self.collectionView.contentOffset.y + desired.top) > 1.0) {
+        // A collection-view layout pass can drop the resting offset back to
+        // zero, which hides the hero under the bar. Put it back until the
+        // user actually drags.
+        CGPoint offset = self.collectionView.contentOffset;
+        offset.y = -desired.top;
+        self.collectionView.contentOffset = offset;
+    }
+    if (@available(iOS 13.0, *)) {
+        self.collectionView.automaticallyAdjustsScrollIndicatorInsets = NO;
+    }
+    if (_shellBar != nil && width > 1) {
+        [self placeChromeView:_shellBar visibleFrame:CGRectMake(0, 0, width, barHeight)];
         UIImageView *mark = (UIImageView *)[_shellBar viewWithTag:1];
         UILabel *title = (UILabel *)[_shellBar viewWithTag:2];
         UIButton *gear = (UIButton *)[_shellBar viewWithTag:3];
         UIView *hairline = [_shellBar viewWithTag:4];
-        mark.frame = CGRectMake(insets.left + 16, insets.top + 14, 28, 28);
-        gear.frame = CGRectMake(width - insets.right - 16 - 36, insets.top + 10, 36, 36);
+        CGFloat rowY = insets.top + 10;
+        mark.frame = CGRectMake(insets.left + 16, rowY + 4, 28, 28);
+        gear.frame = CGRectMake(width - insets.right - 16 - 36, rowY, 36, 36);
         CGFloat titleX = CGRectGetMaxX(mark.frame) + 8;
         CGFloat hostCeiling = CGRectGetMinX(gear.frame) - 8;
         if (!_shellHostButton.hidden) {
-            CGFloat room = hostCeiling - titleX - 80;
-            CGFloat hostWidth = MIN(180, MAX(88, _shellHostButton.intrinsicContentSize.width + 28));
-            hostWidth = MIN(hostWidth, MAX(88, room));
-            _shellHostButton.frame = CGRectMake(hostCeiling - hostWidth, insets.top + 10, hostWidth, 36);
+            CGFloat maxHost = MAX(0, hostCeiling - titleX - 8);
+            CGFloat hostWidth = MIN(180, _shellHostButton.intrinsicContentSize.width + 28);
+            hostWidth = MIN(MAX(64, hostWidth), maxHost);
+            _shellHostButton.frame = CGRectMake(hostCeiling - hostWidth, rowY, hostWidth, 36);
             hostCeiling = CGRectGetMinX(_shellHostButton.frame) - 8;
         }
-        title.frame = CGRectMake(titleX, insets.top + 12, MAX(40, hostCeiling - titleX), 32);
+        title.frame = CGRectMake(titleX, rowY + 2, MAX(0, hostCeiling - titleX), 32);
         hairline.frame = CGRectMake(0, barHeight - 1, width, 1);
-        [self.view bringSubviewToFront:_shellBar];
     }
 
+    UIView *container = [self chromeContainer];
     UIView *card = [_overlay viewWithTag:8801];
     if (card != nil) {
-        _overlay.frame = self.view.bounds;
+        [self placeChromeView:_overlay visibleFrame:CGRectMake(0, 0, width, height)];
         [self layoutCard:card];
         UILabel *name = (UILabel *)[card viewWithTag:8810];
         UILabel *status = (UILabel *)[card viewWithTag:8811];
@@ -2283,37 +2385,63 @@ static NSMutableSet* hostList;
         if (name != nil) {
             name.frame = CGRectMake(20, 48, card.bounds.size.width - 40, 34);
             status.frame = CGRectMake(20, 84, card.bounds.size.width - 40, 36);
-            actions.frame = CGRectMake(16, 132, card.bounds.size.width - 32, MAX(40, card.bounds.size.height - 148));
+            actions.frame = CGRectMake(20, 128, card.bounds.size.width - 40, MAX(40, card.bounds.size.height - 144));
+            CGFloat rowY = 0;
             for (UIView *row in actions.subviews) {
+                if (![row isKindOfClass:[UIButton class]]) {
+                    continue;
+                }
+                [self layoutManagerRow:row width:actions.bounds.size.width];
                 CGRect frame = row.frame;
-                frame.size.width = actions.bounds.size.width;
+                frame.origin.y = rowY;
                 row.frame = frame;
+                rowY += 56;
             }
+            actions.contentSize = CGSizeMake(actions.bounds.size.width, MAX(rowY, actions.bounds.size.height + 1));
         }
         if (_hostSwitcherOpen) {
-            hostScrollView.frame = CGRectMake(8, 52, card.bounds.size.width - 16, MAX(80, card.bounds.size.height - 64));
+            hostScrollView.frame = CGRectMake(12, 56, card.bounds.size.width - 24, MAX(80, card.bounds.size.height - 72));
         }
-        [self.view bringSubviewToFront:_overlay];
     }
     else if ([self twilightUsesHostSidebar]) {
         hostScrollView.backgroundColor = [TwilightTheme sidebar];
         hostScrollView.layer.cornerRadius = 20;
         hostScrollView.clipsToBounds = YES;
         [TwilightTheme applyBorderToLayer:hostScrollView.layer width:1 traitCollection:self.traitCollection];
-        hostScrollView.frame = CGRectMake(insets.left + 16, offsetY + barHeight + 8, 280, MAX(120, height - barHeight - insets.bottom - 24));
-        if (hostScrollView.superview == nil) {
-            [self.view addSubview:hostScrollView];
-        }
-        [self.view bringSubviewToFront:hostScrollView];
+        [self placeChromeView:hostScrollView visibleFrame:CGRectMake(insets.left + 16, barHeight + 8, 280, MAX(120, height - barHeight - insets.bottom - 24))];
     }
     [self layoutHostRows];
     [self layoutEmptyState];
-    if (_shellBar != nil) {
-        [self.view bringSubviewToFront:_shellBar];
+    CGFloat tileWidth = [self libraryTileSize].width;
+    if (fabs(tileWidth - _laidOutTileWidth) > 0.5) {
+        _laidOutTileWidth = tileWidth;
+        [self.collectionView.collectionViewLayout invalidateLayout];
     }
-    UIView *screenshotCover = [self.view viewWithTag:7701];
+    if ([self twilightUsesHostSidebar] && card == nil && hostScrollView.superview == container) {
+        [container bringSubviewToFront:hostScrollView];
+    }
+    if (_shellBar != nil && _shellBar.superview == container) {
+        [container bringSubviewToFront:_shellBar];
+    }
+    if (_overlay != nil && _overlay.superview == container) {
+        [container bringSubviewToFront:_overlay];
+    }
+    UIView *screenshotCover = [container viewWithTag:7701];
+    if (screenshotCover == nil) {
+        screenshotCover = [self.view viewWithTag:7701];
+    }
     if (screenshotCover != nil) {
-        [self.view bringSubviewToFront:screenshotCover];
+        if (screenshotCover.superview != container) {
+            [screenshotCover removeFromSuperview];
+            [container addSubview:screenshotCover];
+        }
+        if (container == self.view) {
+            screenshotCover.frame = self.view.bounds;
+        }
+        else {
+            screenshotCover.frame = self.view.frame;
+        }
+        [container bringSubviewToFront:screenshotCover];
     }
 #endif
     _layingOutChrome = NO;
@@ -2322,6 +2450,12 @@ static NSMutableSet* hostList;
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     [self layoutTwilightChrome];
+}
+
+- (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView {
+    if (scrollView == self.collectionView) {
+        _userScrolledLibrary = YES;
+    }
 }
 
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
@@ -2379,11 +2513,90 @@ static NSMutableSet* hostList;
             });
         }
     }
+    else if ([which isEqualToString:@"hostsheet"]) {
+        [self installScreenshotLibrary];
+        _selectedHost.state = StateOffline;
+        _selectedHost.mac = @"02:00:00:00:00:01";
+        TemporaryHost *host = _selectedHost;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentHostManager:host];
+        });
+    }
+    else if ([which isEqualToString:@"unpaired"]) {
+        [self installScreenshotLibrary];
+        _selectedHost.pairState = PairStateUnpaired;
+        _selectedHost.state = StateOnline;
+        _desktopApp = nil;
+        _sortedAppList = @[];
+        [self.collectionView reloadData];
+        [self layoutTwilightChrome];
+    }
+    else if ([which isEqualToString:@"pairing"]) {
+        [self installScreenshotLibrary];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Pairing"
+                                                                       message:@"Enter the following PIN on the host machine: 4821\n\nIf your host PC is running Sunshine, navigate to the Sunshine web UI to enter the PIN."
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleDestructive handler:nil]];
+        [self presentViewController:alert animated:NO completion:nil];
+    }
+    else if ([which isEqualToString:@"addhost"]) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Add Host Manually"
+                                                                       message:@"If Twilight doesn't find your local gaming PC automatically,\nenter the IP address of your PC"
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+            field.placeholder = @"192.0.2.10";
+            field.keyboardType = UIKeyboardTypeDecimalPad;
+        }];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:NO completion:nil];
+    }
+    else if ([which isEqualToString:@"stream"]) {
+        StreamConfiguration *config = [[StreamConfiguration alloc] init];
+        config.appName = @"Desktop";
+        config.host = @"192.0.2.10";
+        config.width = 1920;
+        config.height = 1080;
+        config.frameRate = 60;
+        config.bitRate = 20000;
+        _streamConfig = config;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self performSegueWithIdentifier:@"createStreamFrame" sender:nil];
+        });
+    }
+    else if ([which isEqualToString:@"empty"]) {
+        @synchronized (hostList) {
+            [hostList removeAllObjects];
+        }
+        _selectedHost = nil;
+        [self updateHosts];
+        [self layoutEmptyState];
+        [self layoutTwilightChrome];
+    }
     else {
         [self updateHosts];
         [self layoutEmptyState];
     }
 #endif
+}
+
+- (UIImage *)screenshotArtWithTitle:(NSString *)title size:(CGSize)size color:(UIColor *)color {
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:size];
+    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        (void)context;
+        [color setFill];
+        UIRectFill(CGRectMake(0, 0, size.width, size.height));
+        NSMutableParagraphStyle *style = [[NSMutableParagraphStyle alloc] init];
+        style.alignment = NSTextAlignmentCenter;
+        UIFont *font = [UIFont systemFontOfSize:size.width > size.height ? 18 : 22 weight:UIFontWeightSemibold];
+        NSDictionary *attrs = @{
+            NSFontAttributeName: font,
+            NSForegroundColorAttributeName: [UIColor whiteColor],
+            NSParagraphStyleAttributeName: style,
+        };
+        CGRect textRect = CGRectMake(12, (size.height - 56) / 2.0, size.width - 24, 56);
+        [title drawInRect:textRect withAttributes:attrs];
+    }];
 }
 
 - (void)installScreenshotLibrary {
@@ -2400,12 +2613,32 @@ static NSMutableSet* hostList;
     desktop.name = @"Desktop";
     desktop.host = host;
 
+    TemporaryApp *remote = [[TemporaryApp alloc] init];
+    remote.id = @"remote";
+    remote.name = @"Remote Input";
+    remote.host = host;
+
+    TemporaryApp *resume = [[TemporaryApp alloc] init];
+    resume.id = @"resume";
+    resume.name = @"Resume";
+    resume.host = host;
+
+    TemporaryApp *terminate = [[TemporaryApp alloc] init];
+    terminate.id = @"terminate";
+    terminate.name = @"Terminate";
+    terminate.host = host;
+
     TemporaryApp *game = [[TemporaryApp alloc] init];
     game.id = @"example";
-    game.name = @"Example";
+    game.name = @"Example Game";
     game.host = host;
 
-    host.appList = [NSSet setWithObjects:desktop, game, nil];
+    TemporaryApp *poster = [[TemporaryApp alloc] init];
+    poster.id = @"poster";
+    poster.name = @"Night Shift";
+    poster.host = host;
+
+    host.appList = [NSSet setWithObjects:desktop, remote, resume, terminate, game, poster, nil];
     @synchronized (hostList) {
         [hostList removeAllObjects];
         [hostList addObject:host];
@@ -2414,6 +2647,18 @@ static NSMutableSet* hostList;
     [self enableUpButton];
     [self updateTitle];
     [self updateAppsForHost:host];
+    UIColor *slate = [UIColor colorWithRed:0.16 green:0.24 blue:0.34 alpha:1];
+    UIColor *teal = [UIColor colorWithRed:0.12 green:0.36 blue:0.38 alpha:1];
+    UIColor *red = [UIColor colorWithRed:0.45 green:0.16 blue:0.16 alpha:1];
+    UIColor *navy = [UIColor colorWithRed:0.10 green:0.16 blue:0.32 alpha:1];
+    UIColor *amber = [UIColor colorWithRed:0.72 green:0.38 blue:0.12 alpha:1];
+    [_boxArtCache setObject:[self screenshotArtWithTitle:@"Desktop" size:CGSizeMake(200, 300) color:slate] forKey:desktop];
+    [_boxArtCache setObject:[self screenshotArtWithTitle:@"Input" size:CGSizeMake(200, 200) color:slate] forKey:remote];
+    [_boxArtCache setObject:[self screenshotArtWithTitle:@"Resume" size:CGSizeMake(200, 200) color:teal] forKey:resume];
+    [_boxArtCache setObject:[self screenshotArtWithTitle:@"Stop" size:CGSizeMake(200, 200) color:red] forKey:terminate];
+    [_boxArtCache setObject:[self screenshotArtWithTitle:@"Game" size:CGSizeMake(200, 300) color:navy] forKey:game];
+    [_boxArtCache setObject:[self screenshotArtWithTitle:@"Night" size:CGSizeMake(200, 300) color:amber] forKey:poster];
+    [self.collectionView reloadData];
 }
 
 - (void)installScreenshotLoadingCard {
@@ -2422,9 +2667,11 @@ static NSMutableSet* hostList;
     cover.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     cover.backgroundColor = [TwilightTheme background];
     TwilightLaunchCard *card = [TwilightLaunchCard cardWithStage:@"Starting Desktop" hint:@"Connecting to the host…"];
-    CGSize size = [card sizeThatFits:CGSizeMake(self.view.bounds.size.width - 64, 200)];
+    UIEdgeInsets insets = self.view.safeAreaInsets;
+    CGFloat maxW = MAX(220, self.view.bounds.size.width - insets.left - insets.right - 48);
+    CGSize size = [card sizeThatFits:CGSizeMake(maxW, 220)];
     card.bounds = (CGRect){CGPointZero, size};
-    card.center = CGPointMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds));
+    card.center = CGPointMake(CGRectGetMidX(cover.bounds), CGRectGetMidY(cover.bounds));
     card.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
     [cover addSubview:card];
     [self.view addSubview:cover];
