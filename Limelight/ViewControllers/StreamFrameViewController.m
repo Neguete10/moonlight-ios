@@ -15,6 +15,8 @@
 #import "AdaptiveBitrate.h"
 #import "MicrophoneCapture.h"
 #import "HttpManager.h"
+#import "TwilightTheme.h"
+#import "Utils.h"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -43,9 +45,11 @@
     UITapGestureRecognizer *_menuDoubleTapGestureRecognizer;
     UITapGestureRecognizer *_playPauseTapGestureRecognizer;
     UITextView *_overlayView;
-    UILabel *_stageLabel;
-    UILabel *_tipLabel;
-    UIActivityIndicatorView *_spinner;
+    TwilightLaunchCard *_launchCard;
+    UIView *_launchCover;
+    TwilightHudBar *_hudBar;
+    UIView *_endMenu;
+    UIButton *_endMenuFirstButton;
     StreamView *_streamView;
     UIScrollView *_scrollView;
     BOOL _userIsInteracting;
@@ -60,18 +64,55 @@
 #endif
 }
 
+- (void)viewWillAppear:(BOOL)animated
+{
+    [super viewWillAppear:animated];
+#if !TARGET_OS_TV
+    [self twilightApplyStreamOrientation];
+#endif
+}
+
 - (void)viewDidAppear:(BOOL)animated
 {
     [super viewDidAppear:animated];
     
 #if !TARGET_OS_TV
     [[self revealViewController] setPrimaryViewController:self];
+    [self twilightApplyStreamOrientation];
 #endif
 }
+
+#if !TARGET_OS_TV
+- (void)twilightApplyStreamOrientation {
+    if (UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPhone) {
+        return;
+    }
+    [Utils twilightRequestGeometryUpdateForViewController:self orientations:[Utils twilightStreamOrientations]];
+}
+
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+    [coordinator animateAlongsideTransition:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+        (void)context;
+        [self layoutLaunchCard];
+        [self layoutHudBar];
+        [self layoutEndMenu];
+    } completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+        (void)context;
+        [self layoutLaunchCard];
+        [self layoutHudBar];
+        [self layoutEndMenu];
+    }];
+}
+#endif
 
 #if TARGET_OS_TV
 - (void)controllerPauseButtonPressed:(id)sender {
     Log(LOG_I, @"Menu pressed -- stream end choices");
+    if (_endMenuPresented) {
+        [self dismissEndMenu];
+        return;
+    }
     [self presentEndStreamChoices];
 }
 - (void)controllerPauseButtonDoublePressed:(id)sender {
@@ -85,35 +126,62 @@
 #endif
 
 
+- (BOOL)screenshotStreamFixture {
+#if DEBUG && !TARGET_OS_TV
+    const char *mode = getenv("TWILIGHT_SCREENSHOT");
+    if (mode == NULL) {
+        return NO;
+    }
+    NSString *which = [NSString stringWithUTF8String:mode];
+    return [which isEqualToString:@"stream"] || [which isEqualToString:@"returnstream"];
+#else
+    return NO;
+#endif
+}
+
+- (void)installScreenshotStreamChrome {
+    self.view.backgroundColor = [TwilightTheme background];
+    _hudBar = [[TwilightHudBar alloc] initWithFrame:CGRectMake(0, 0, 320, 44)];
+    [_hudBar setFps:@"60" bitrate:@"18.0 Mbps" rtt:@"4 ms"];
+    [self.view addSubview:_hudBar];
+    [self layoutHudBar];
+    [self presentEndStreamChoices];
+}
+
 - (void)viewDidLoad
 {
     [super viewDidLoad];
     
     [self.navigationController setNavigationBarHidden:YES animated:YES];
+
+    if ([self screenshotStreamFixture]) {
+        const char *mode = getenv("TWILIGHT_SCREENSHOT");
+        if (mode != NULL && [[NSString stringWithUTF8String:mode] isEqualToString:@"stream"]) {
+            [self installScreenshotStreamChrome];
+        }
+        else {
+            self.view.backgroundColor = [TwilightTheme background];
+        }
+        return;
+    }
     
     [UIApplication sharedApplication].idleTimerDisabled = YES;
     
     _settings = [[[DataManager alloc] init] getSettings];
     _featureLock = [[NSLock alloc] init];
     
-    _stageLabel = [[UILabel alloc] init];
-    [_stageLabel setUserInteractionEnabled:NO];
-    [_stageLabel setText:[NSString stringWithFormat:@"Starting %@...", self.streamConfig.appName]];
-    [_stageLabel sizeToFit];
-    _stageLabel.textAlignment = NSTextAlignmentCenter;
-    _stageLabel.textColor = [UIColor whiteColor];
-    _stageLabel.center = CGPointMake(self.view.frame.size.width / 2, self.view.frame.size.height / 2);
-    
-    _spinner = [[UIActivityIndicatorView alloc] init];
-    [_spinner setUserInteractionEnabled:NO];
+    self.view.backgroundColor = [TwilightTheme background];
+    NSString *stage = [NSString stringWithFormat:@"Starting %@", self.streamConfig.appName ?: @"stream"];
 #if TARGET_OS_TV
-    [_spinner setActivityIndicatorViewStyle:UIActivityIndicatorViewStyleWhiteLarge];
+    NSString *hint = @"Tip: press Menu for end options. Play/Pause disconnects.";
 #else
-    [_spinner setActivityIndicatorViewStyle:UIActivityIndicatorViewStyleWhite];
+    NSString *hint = @"Tip: swipe from the left edge to disconnect. Hold the left edge for end options.";
 #endif
-    [_spinner sizeToFit];
-    [_spinner startAnimating];
-    _spinner.center = CGPointMake(self.view.frame.size.width / 2, self.view.frame.size.height / 2 - _stageLabel.frame.size.height - _spinner.frame.size.height);
+    _launchCard = [TwilightLaunchCard cardWithStage:stage hint:hint];
+    _launchCover = [[UIView alloc] initWithFrame:self.view.bounds];
+    _launchCover.backgroundColor = [TwilightTheme background];
+    _launchCover.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [_launchCover addSubview:_launchCard];
     
     _controllerSupport = [[ControllerSupport alloc] initWithConfig:self.streamConfig delegate:self];
     _inactivityTimer = nil;
@@ -155,20 +223,6 @@
     edgeHold.delegate = (id<UIGestureRecognizerDelegate>)self;
     [_streamView addGestureRecognizer:edgeHold];
 #endif
-    
-    _tipLabel = [[UILabel alloc] init];
-    [_tipLabel setUserInteractionEnabled:NO];
-    
-#if TARGET_OS_TV
-    [_tipLabel setText:@"Tip: Play/Pause disconnects. Menu can also quit the app on the host"];
-#else
-    [_tipLabel setText:@"Tip: Swipe from the left edge to disconnect. Hold the left edge to quit the app on the host"];
-#endif
-    
-    [_tipLabel sizeToFit];
-    _tipLabel.textColor = [UIColor whiteColor];
-    _tipLabel.textAlignment = NSTextAlignmentCenter;
-    _tipLabel.center = CGPointMake(self.view.frame.size.width / 2, self.view.frame.size.height * 0.9);
     
     _streamMan = [[StreamManager alloc] initWithConfig:self.streamConfig
                                             renderView:_streamView
@@ -238,9 +292,8 @@
         [self.view addSubview:_streamView];
     }
     
-    [self.view addSubview:_stageLabel];
-    [self.view addSubview:_spinner];
-    [self.view addSubview:_tipLabel];
+    [self.view addSubview:_launchCover];
+    [self layoutLaunchCard];
 }
 
 - (UIView *)viewForZoomingInScrollView:(UIScrollView *)scrollView {
@@ -291,11 +344,61 @@
 #endif
 
 - (void)updateStatsOverlay {
-    NSString* overlayText = [self->_streamMan getStatsOverlayText];
-    
+    NSString *fps = nil;
+    NSString *bitrate = nil;
+    NSString *rtt = nil;
+    [self->_streamMan getHudMetricsFps:&fps bitrate:&bitrate rtt:&rtt];
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self updateOverlayText:overlayText];
+        if (self->_hudBar == nil) {
+            self->_hudBar = [[TwilightHudBar alloc] initWithFrame:CGRectMake(0, 0, 420, 44)];
+            __weak StreamFrameViewController *weakSelf = self;
+            self->_hudBar.endAction = ^{
+                [weakSelf presentEndStreamChoices];
+            };
+            [self.view addSubview:self->_hudBar];
+        }
+        [self->_hudBar setFps:fps bitrate:bitrate rtt:rtt];
+        [self layoutHudBar];
+        [self.view bringSubviewToFront:self->_hudBar];
     });
+}
+
+- (void)layoutLaunchCard {
+    if (_launchCard == nil || _launchCover == nil) {
+        return;
+    }
+    UIEdgeInsets insets = self.view.safeAreaInsets;
+    CGFloat maxW = self.view.bounds.size.width - insets.left - insets.right - 48;
+    maxW = MAX(220, MIN(440, maxW));
+    CGSize size = [_launchCard sizeThatFits:CGSizeMake(maxW, 220)];
+    _launchCard.bounds = (CGRect){CGPointZero, size};
+    CGRect safe = UIEdgeInsetsInsetRect(_launchCover.bounds, insets);
+    _launchCard.center = CGPointMake(CGRectGetMidX(safe), CGRectGetMidY(safe));
+}
+
+- (void)layoutHudBar {
+    if (_hudBar == nil) {
+        return;
+    }
+    UIEdgeInsets insets = self.view.safeAreaInsets;
+    CGFloat available = self.view.bounds.size.width - insets.left - insets.right - 24;
+    CGFloat width = MIN(460, MAX(200, available));
+    CGFloat top = insets.top + 12;
+    CGFloat x = insets.left + (self.view.bounds.size.width - insets.left - insets.right - width) / 2.0;
+    _hudBar.frame = CGRectMake(x, top, width, 44);
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self layoutLaunchCard];
+    [self layoutHudBar];
+    [self layoutEndMenu];
+    if (_endMenu != nil) {
+        [self.view bringSubviewToFront:_endMenu];
+    }
+    if (_hudBar != nil) {
+        [self.view bringSubviewToFront:_hudBar];
+    }
 }
 
 - (void)updateOverlayText:(NSString*)text {
@@ -313,14 +416,16 @@
             [_overlayView setTextAlignment:NSTextAlignmentCenter];
         }
         
-        [_overlayView setTextColor:[UIColor lightGrayColor]];
-        [_overlayView setBackgroundColor:[UIColor blackColor]];
+        [_overlayView setTextColor:[TwilightTheme ink]];
+        [_overlayView setBackgroundColor:[TwilightTheme glass]];
+        _overlayView.layer.cornerRadius = 16;
+        _overlayView.textContainerInset = UIEdgeInsetsMake(10, 12, 10, 12);
 #if TARGET_OS_TV
-        [_overlayView setFont:[UIFont systemFontOfSize:24]];
+        [_overlayView setFont:[TwilightTheme fontForStyle:UIFontTextStyleTitle3 weight:UIFontWeightSemibold]];
 #else
-        [_overlayView setFont:[UIFont systemFontOfSize:12]];
+        [_overlayView setFont:[TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightSemibold]];
 #endif
-        [_overlayView setAlpha:0.5];
+        [_overlayView setAlpha:1.0];
         [self.view addSubview:_overlayView];
     }
     
@@ -334,7 +439,15 @@
                                            _overlayView.frame.size.height)];
         [_overlayView setText:text];
         [_overlayView sizeToFit];
-        [_overlayView setCenter:CGPointMake(self.view.frame.size.width / 2, _overlayView.frame.size.height / 2)];
+        UIEdgeInsets insets = self.view.safeAreaInsets;
+        CGFloat maxW = self.view.bounds.size.width - insets.left - insets.right - 24;
+        CGRect frame = _overlayView.frame;
+        if (frame.size.width > maxW) {
+            frame.size.width = MAX(120, maxW);
+        }
+        frame.origin.x = insets.left + (self.view.bounds.size.width - insets.left - insets.right - frame.size.width) / 2.0;
+        frame.origin.y = insets.top + 8;
+        _overlayView.frame = frame;
         [_overlayView setHidden:NO];
     }
     else {
@@ -423,28 +536,141 @@
     [self presentEndStreamChoices];
 }
 
+- (void)dismissEndMenu {
+    _endMenuPresented = NO;
+    [_endMenu removeFromSuperview];
+    _endMenu = nil;
+    _endMenuFirstButton = nil;
+#if TARGET_OS_TV
+    [self setNeedsFocusUpdate];
+#endif
+}
+
+- (UIButton *)endMenuButton:(NSString *)title color:(UIColor *)color action:(SEL)action {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
+    [button setTitle:title forState:UIControlStateNormal];
+    [button setTitleColor:[TwilightTheme ink] forState:UIControlStateNormal];
+    button.titleLabel.font = [TwilightTheme fontForStyle:UIFontTextStyleSubheadline weight:UIFontWeightSemibold];
+    button.titleLabel.adjustsFontForContentSizeCategory = YES;
+    button.backgroundColor = color;
+    button.layer.cornerRadius = 10;
+    [button addTarget:self action:action forControlEvents:UIControlEventPrimaryActionTriggered];
+    return button;
+}
+
+- (void)layoutEndMenu {
+    if (_endMenu == nil) {
+        return;
+    }
+    _endMenu.frame = self.view.bounds;
+    UIView *scrim = [_endMenu viewWithTag:8700];
+    scrim.frame = _endMenu.bounds;
+    UIEdgeInsets insets = self.view.safeAreaInsets;
+    CGFloat cardW = MIN(420, self.view.bounds.size.width - insets.left - insets.right - 32);
+    cardW = MAX(260, cardW);
+    CGFloat topLimit = insets.top + (_hudBar != nil && !_hudBar.hidden ? 64 : 0);
+    CGFloat cardH = 248;
+    CGFloat availableH = self.view.bounds.size.height - topLimit - insets.bottom - 16;
+    if (cardH > availableH) {
+        cardH = MAX(180, availableH);
+    }
+    UIView *card = [_endMenu viewWithTag:8801];
+    card.frame = CGRectMake(insets.left + (self.view.bounds.size.width - insets.left - insets.right - cardW) / 2.0,
+                            topLimit + MAX(0, (availableH - cardH) / 2.0),
+                            cardW,
+                            cardH);
+    UILabel *title = (UILabel *)[card viewWithTag:8805];
+    title.frame = CGRectMake(20, 16, cardW - 40, 22);
+    CGFloat buttonW = cardW - 32;
+    CGFloat buttonH = 44;
+    CGFloat gap = 8;
+    CGFloat buttonsTop = 52;
+    CGFloat needed = buttonsTop + buttonH * 3 + gap * 2 + 16;
+    if (needed > cardH) {
+        buttonH = 36;
+        gap = 6;
+        needed = buttonsTop + buttonH * 3 + gap * 2 + 12;
+    }
+    if (needed > cardH && cardH > 40) {
+        buttonH = MAX(32, floor((cardH - buttonsTop - 12 - gap * 2) / 3.0));
+    }
+    UIView *end = [card viewWithTag:8802];
+    UIView *quit = [card viewWithTag:8803];
+    UIView *cancel = [card viewWithTag:8804];
+    end.frame = CGRectMake(16, buttonsTop, buttonW, buttonH);
+    quit.frame = CGRectMake(16, buttonsTop + buttonH + gap, buttonW, buttonH);
+    cancel.frame = CGRectMake(16, buttonsTop + (buttonH + gap) * 2, buttonW, buttonH);
+}
+
 - (void)presentEndStreamChoices {
     if (_endMenuPresented || _streamFinished) {
         return;
     }
     _endMenuPresented = YES;
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"End Stream"
-                                                                   message:@"Quitting the app on the host drops unsaved progress there."
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    [alert addAction:[UIAlertAction actionWithTitle:@"End Stream" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        self->_endMenuPresented = NO;
-        [self endStreamFromUserQuitHost:NO];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"End Stream and Quit App" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
-        self->_endMenuPresented = NO;
-        [self endStreamFromUserQuitHost:YES];
-    }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
-        self->_endMenuPresented = NO;
-    }]];
-    alert.popoverPresentationController.sourceView = self.view;
-    alert.popoverPresentationController.sourceRect = CGRectMake(0, CGRectGetMidY(self.view.bounds), 1, 1);
-    [self presentViewController:alert animated:YES completion:nil];
+    UIView *menu = [[UIView alloc] initWithFrame:self.view.bounds];
+    menu.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    UIView *scrim = [[UIView alloc] initWithFrame:menu.bounds];
+    scrim.tag = 8700;
+    scrim.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    scrim.backgroundColor = [TwilightTheme scrim];
+    [scrim addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissEndMenu)]];
+    [menu addSubview:scrim];
+
+    UIView *card = [[UIView alloc] initWithFrame:CGRectZero];
+    card.tag = 8801;
+    card.backgroundColor = [TwilightTheme sheetBackground];
+    card.opaque = YES;
+    card.layer.cornerRadius = 18;
+    [TwilightTheme applyBorderToLayer:card.layer width:1 traitCollection:self.traitCollection];
+
+    UILabel *title = [[UILabel alloc] init];
+    title.tag = 8805;
+    title.text = @"End stream";
+    title.font = [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightSemibold];
+    title.textColor = [TwilightTheme secondary];
+    [card addSubview:title];
+
+    UIButton *end = [self endMenuButton:@"End Stream" color:[TwilightTheme fillStrong] action:@selector(endMenuEndStream)];
+    end.tag = 8802;
+    UIButton *quit = [self endMenuButton:@"End Stream and Quit App" color:[TwilightTheme fillStrong] action:@selector(endMenuQuitApp)];
+    quit.tag = 8803;
+    [quit setTitleColor:[TwilightTheme danger] forState:UIControlStateNormal];
+    quit.titleLabel.adjustsFontSizeToFitWidth = YES;
+    quit.titleLabel.minimumScaleFactor = 0.75;
+    UIButton *cancel = [self endMenuButton:@"Cancel" color:[UIColor clearColor] action:@selector(dismissEndMenu)];
+    cancel.tag = 8804;
+    end.titleLabel.adjustsFontSizeToFitWidth = YES;
+    end.titleLabel.minimumScaleFactor = 0.75;
+    cancel.titleLabel.adjustsFontSizeToFitWidth = YES;
+    _endMenuFirstButton = end;
+    [card addSubview:end];
+    [card addSubview:quit];
+    [card addSubview:cancel];
+    [menu addSubview:card];
+    _endMenu = menu;
+    [self.view addSubview:menu];
+    [self layoutEndMenu];
+#if TARGET_OS_TV
+    [self setNeedsFocusUpdate];
+    [self updateFocusIfNeeded];
+#endif
+}
+
+- (void)endMenuEndStream {
+    [self dismissEndMenu];
+    [self endStreamFromUserQuitHost:NO];
+}
+
+- (void)endMenuQuitApp {
+    [self dismissEndMenu];
+    [self endStreamFromUserQuitHost:YES];
+}
+
+- (NSArray<id<UIFocusEnvironment>> *)preferredFocusEnvironments {
+    if (_endMenuFirstButton != nil) {
+        return @[ _endMenuFirstButton ];
+    }
+    return [super preferredFocusEnvironments];
 }
 
 - (void)endStreamFromUserQuitHost:(BOOL)forceQuit {
@@ -482,10 +708,7 @@
 - (void) connectionStarted {
     Log(LOG_I, @"Connection started");
     dispatch_async(dispatch_get_main_queue(), ^{
-        // Leave the spinner spinning until it's obscured by
-        // the first frame of video.
-        self->_stageLabel.hidden = YES;
-        self->_tipLabel.hidden = YES;
+        self->_launchCover.hidden = YES;
         
         [self->_streamView showOnScreenControls];
         
@@ -552,7 +775,7 @@
                 case ML_ERROR_UNEXPECTED_EARLY_TERMINATION:
                 case ML_ERROR_PROTECTED_CONTENT:
                     title = @"Connection Error";
-                    message = @"Something went wrong on your host PC when starting the stream.\n\nMake sure you don't have any DRM-protected content open on your host PC. You can also try restarting your host PC.\n\nIf the issue persists, try reinstalling your GPU drivers and GeForce Experience.";
+                    message = @"Something went wrong on your host PC when starting the stream.\n\nMake sure you don't have any DRM-protected content open on the host. You can also try restarting the PC.\n\nIf it keeps happening, restart Sunshine and update the GPU driver.";
                     break;
                     
                 case ML_ERROR_FRAME_CONVERSION:
@@ -595,11 +818,9 @@
 - (void) stageStarting:(const char*)stageName {
     Log(LOG_I, @"Starting %s", stageName);
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSString* lowerCase = [NSString stringWithFormat:@"%s in progress...", stageName];
+        NSString* lowerCase = [NSString stringWithFormat:@"%s in progress…", stageName];
         NSString* titleCase = [[[lowerCase substringToIndex:1] uppercaseString] stringByAppendingString:[lowerCase substringFromIndex:1]];
-        [self->_stageLabel setText:titleCase];
-        [self->_stageLabel sizeToFit];
-        self->_stageLabel.center = CGPointMake(self.view.frame.size.width / 2, self->_stageLabel.center.y);
+        [self->_launchCard setStageText:titleCase];
     });
 }
 
@@ -757,7 +978,7 @@
 }
 
 - (void) videoContentShown {
-    [_spinner stopAnimating];
+    [_launchCover setHidden:YES];
     [self.view setBackgroundColor:[UIColor blackColor]];
 }
 
@@ -837,6 +1058,20 @@
 
 - (BOOL)shouldAutorotate {
     return YES;
+}
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return [Utils twilightStreamOrientations];
+}
+
+- (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation {
+    if (UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPhone) {
+        return [super preferredInterfaceOrientationForPresentation];
+    }
+    if (UIDevice.currentDevice.orientation == UIDeviceOrientationLandscapeLeft) {
+        return UIInterfaceOrientationLandscapeRight;
+    }
+    return UIInterfaceOrientationLandscapeLeft;
 }
 
 - (BOOL)prefersPointerLocked {

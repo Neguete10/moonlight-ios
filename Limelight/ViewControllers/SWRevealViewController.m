@@ -36,6 +36,12 @@
 // it will return the statusBar height if view fully overlaps the statusBar, otherwise returns 0.0f
 static CGFloat statusBarAdjustment( UIView* view )
 {
+    // Safe area already includes the status bar and Dynamic Island. Adding
+    // statusBarFrame on top of that leaves an empty band at the top.
+    if (@available(iOS 11.0, *)) {
+        return 0.0f;
+    }
+
     CGFloat adjustment = 0.0f;
     UIApplication *app = [UIApplication sharedApplication];
     UIWindow *keyWindow = [AppDelegate currentWindow];
@@ -674,6 +680,38 @@ const int FrontViewPositionNone = 0xff;
     UIViewController *controller = [self childViewControllerForStatusBarStyle];
     return controller;
 }
+
+#if !TARGET_OS_TV
+- (UIViewController *)twilightOrientationChild {
+    UIViewController *controller = self.frontViewController;
+    if ([controller isKindOfClass:[UINavigationController class]]) {
+        UIViewController *top = ((UINavigationController *)controller).topViewController;
+        if (top != nil) {
+            return top;
+        }
+    }
+    return controller;
+}
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    UIViewController *child = [self twilightOrientationChild];
+    if (child != nil && child != self) {
+        return [child supportedInterfaceOrientations];
+    }
+    if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
+        return UIInterfaceOrientationMaskLandscape;
+    }
+    return UIInterfaceOrientationMaskAll;
+}
+
+- (BOOL)shouldAutorotate {
+    UIViewController *child = [self twilightOrientationChild];
+    if (child != nil && child != self) {
+        return [child shouldAutorotate];
+    }
+    return YES;
+}
+#endif
 
 
 #pragma mark - View lifecycle

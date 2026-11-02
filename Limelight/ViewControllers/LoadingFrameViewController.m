@@ -8,15 +8,31 @@
 
 #import "LoadingFrameViewController.h"
 #import "AppDelegate.h"
+#import "TwilightTheme.h"
+#import "Utils.h"
 
 @implementation LoadingFrameViewController {
     BOOL presented;
+    TwilightLaunchCard *_card;
 };
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    // center the loading spinner
-    self.loadingSpinner.center = CGPointMake(self.view.frame.size.width / 2, self.view.frame.size.height / 2);
+    self.view.backgroundColor = [TwilightTheme scrim];
+    self.loadingSpinner.hidden = YES;
+    _card = [TwilightLaunchCard cardWithStage:@"Loading…" hint:@""];
+    [self.view addSubview:_card];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    UIEdgeInsets insets = self.view.safeAreaInsets;
+    CGFloat maxW = self.view.bounds.size.width - insets.left - insets.right - 48;
+    maxW = MAX(160, maxW);
+    CGSize size = [_card sizeThatFits:CGSizeMake(maxW, 220)];
+    _card.bounds = (CGRect){CGPointZero, size};
+    CGRect safe = UIEdgeInsetsInsetRect(self.view.bounds, insets);
+    _card.center = CGPointMake(CGRectGetMidX(safe), CGRectGetMidY(safe));
 }
 
 - (UIViewController*) activeViewController {
@@ -80,5 +96,19 @@
 - (BOOL)isShown {
     return presented;
 }
+
+#if !TARGET_OS_TV
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    UIViewController *presenter = self.presentingViewController;
+    if (presenter != nil) {
+        return [presenter supportedInterfaceOrientations];
+    }
+    return [Utils twilightLibraryOrientations];
+}
+
+- (BOOL)shouldAutorotate {
+    return YES;
+}
+#endif
 
 @end

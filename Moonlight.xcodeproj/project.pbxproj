@@ -15,6 +15,8 @@
 		A7E1B318EF96000100AB1318 /* AboutViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1B317EF96000100AB1317 /* AboutViewController.m */; };
 		A7E1B323EF96000100AB1323 /* SceneDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1B322EF96000100AB1322 /* SceneDelegate.m */; };
 		A7E1B319EF96000100AB1319 /* AboutViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1B317EF96000100AB1317 /* AboutViewController.m */; };
+		A7E1B332EF96000100AB1332 /* TwilightTheme.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1B331EF96000100AB1331 /* TwilightTheme.m */; };
+		A7E1B333EF96000100AB1333 /* TwilightTheme.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1B331EF96000100AB1331 /* TwilightTheme.m */; };
 		98181BE92791277400E43572 /* libSDL2.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 98181BE82791275D00E43572 /* libSDL2.a */; };
 		98181BEB2791278F00E43572 /* libSDL2.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 98181BEA2791278300E43572 /* libSDL2.a */; };
 		98181BED2791281100E43572 /* CoreMotion.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 98181BEC2791281100E43572 /* CoreMotion.framework */; };
@@ -214,6 +216,8 @@
 		A7E1B313EF96000100AB1313 /* LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE.txt; sourceTree = "<group>"; };
 		A7E1B316EF96000100AB1316 /* AboutViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AboutViewController.h; sourceTree = "<group>"; };
 		A7E1B317EF96000100AB1317 /* AboutViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AboutViewController.m; sourceTree = "<group>"; };
+		A7E1B330EF96000100AB1330 /* TwilightTheme.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TwilightTheme.h; sourceTree = "<group>"; };
+		A7E1B331EF96000100AB1331 /* TwilightTheme.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TwilightTheme.m; sourceTree = "<group>"; };
 		A7E1B321EF96000100AB1321 /* SceneDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SceneDelegate.h; sourceTree = "<group>"; };
 		A7E1B322EF96000100AB1322 /* SceneDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SceneDelegate.m; sourceTree = "<group>"; };
 		98783FEA242EAC5D00F00EF4 /* Moonlight v1.5.xcdatamodel */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcdatamodel; path = "Moonlight v1.5.xcdatamodel"; sourceTree = "<group>"; };
@@ -486,6 +490,8 @@
 				FBDE86DF19F7A837001C18A8 /* UIComputerView.m */,
 				FBDE86E419F82297001C18A8 /* UIAppView.h */,
 				FBDE86E519F82297001C18A8 /* UIAppView.m */,
+				A7E1B330EF96000100AB1330 /* TwilightTheme.h */,
+				A7E1B331EF96000100AB1331 /* TwilightTheme.m */,
 				FB290E7819B37D81004C83CF /* iPad.storyboard */,
 				FB290E7A19B38036004C83CF /* iPhone.storyboard */,
 				FB89463719F6473800339C8A /* Launch Screen.xib */,
@@ -954,6 +960,7 @@
 				FB1A67A9213245BD00507771 /* VideoDecoderRenderer.m in Sources */,
 				FB1A67A12132458C00507771 /* main.m in Sources */,
 				A7E1B319EF96000100AB1319 /* AboutViewController.m in Sources */,
+				A7E1B333EF96000100AB1333 /* TwilightTheme.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1013,6 +1020,7 @@
 				FB89463119F646E200339C8A /* StreamManager.m in Sources */,
 				988FCD41293B091B003050E2 /* KeyboardInputField.m in Sources */,
 				A7E1B318EF96000100AB1318 /* AboutViewController.m in Sources */,
+				A7E1B332EF96000100AB1332 /* TwilightTheme.m in Sources */,
 				A7E1B323EF96000100AB1323 /* SceneDelegate.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

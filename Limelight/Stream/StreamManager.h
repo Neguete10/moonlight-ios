@@ -18,5 +18,6 @@
 - (void) stopAdaptiveBitrate;
 
 - (NSString*) getStatsOverlayText;
+- (BOOL) getHudMetricsFps:(NSString **)fps bitrate:(NSString **)bitrate rtt:(NSString **)rtt;
 
 @end
