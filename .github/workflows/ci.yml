@@ -426,9 +426,7 @@ jobs:
           assert_orientation() {
             local file="$1"
             local expect="$2"
-            python3 -c 'import struct,sys; p=sys.argv[1]; expect=sys.argv[2]; d=open(p,"rb").read();
-w,h=struct.unpack(">II", d[16:24]); print("%s: %dx%d (want %s)"%(p,w,h,expect)); land=w>h;
-sys.exit(0 if (land if expect=="landscape" else not land) else 1)' "$file" "$expect"
+            python3 -c 'import struct,sys; p,expect=sys.argv[1],sys.argv[2]; d=open(p,"rb").read(); w,h=struct.unpack(">II", d[16:24]); print("%s: %dx%d (want %s)"%(p,w,h,expect)); land=w>h; ok=land if expect=="landscape" else not land; sys.exit(0 if ok else 1)' "$file" "$expect"
           }
 
           boot_device "Twilight iPhone" "$(cat /tmp/twilight-iphone-type)"
