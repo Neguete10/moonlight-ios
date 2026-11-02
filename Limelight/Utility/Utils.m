@@ -156,6 +156,69 @@ NSString *const deviceName = @"roth";
     }
 }
 
+#if !TARGET_OS_TV
++ (UIInterfaceOrientationMask)twilightStreamOrientations {
+    if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
+        return UIInterfaceOrientationMaskLandscape;
+    }
+    return UIInterfaceOrientationMaskAll;
+}
+
++ (UIInterfaceOrientationMask)twilightLibraryOrientations {
+    if (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone) {
+        return UIInterfaceOrientationMaskPortrait | UIInterfaceOrientationMaskLandscape;
+    }
+    return UIInterfaceOrientationMaskAll;
+}
+
++ (void)twilightRequestGeometryUpdateForViewController:(UIViewController *)viewController orientations:(UIInterfaceOrientationMask)orientations {
+    if (viewController == nil) {
+        return;
+    }
+    if (@available(iOS 16.0, *)) {
+        UIViewController *cursor = viewController;
+        while (cursor != nil) {
+            [cursor setNeedsUpdateOfSupportedInterfaceOrientations];
+            cursor = cursor.parentViewController;
+        }
+        UIWindowScene *scene = viewController.view.window.windowScene;
+        if (scene == nil) {
+            for (UIScene *candidate in UIApplication.sharedApplication.connectedScenes) {
+                if ([candidate isKindOfClass:[UIWindowScene class]]) {
+                    scene = (UIWindowScene *)candidate;
+                    break;
+                }
+            }
+        }
+        if (scene == nil) {
+            return;
+        }
+        UIWindowSceneGeometryPreferencesIOS *preferences = [[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:orientations];
+        [scene requestGeometryUpdateWithPreferences:preferences errorHandler:^(NSError *error) {
+            Log(LOG_W, @"Interface orientation update failed: %@", error);
+        }];
+        return;
+    }
+
+    // iOS 15 has no scene geometry update. Match the device when several
+    // orientations are allowed, and pick a landscape side when only those are.
+    UIDeviceOrientation device = UIDevice.currentDevice.orientation;
+    UIInterfaceOrientation target = UIInterfaceOrientationPortrait;
+    BOOL landscapeOnly = (orientations & UIInterfaceOrientationMaskPortrait) == 0;
+    if (landscapeOnly) {
+        target = device == UIDeviceOrientationLandscapeLeft ? UIInterfaceOrientationLandscapeRight : UIInterfaceOrientationLandscapeLeft;
+    }
+    else if (device == UIDeviceOrientationLandscapeLeft) {
+        target = UIInterfaceOrientationLandscapeRight;
+    }
+    else if (device == UIDeviceOrientationLandscapeRight) {
+        target = UIInterfaceOrientationLandscapeLeft;
+    }
+    [[UIDevice currentDevice] setValue:@(target) forKey:@"orientation"];
+    [UIViewController attemptRotationToDeviceOrientation];
+}
+#endif
+
 @end
 
 @implementation NSString (NSStringWithTrim)

@@ -9,6 +9,7 @@
 #import "LoadingFrameViewController.h"
 #import "AppDelegate.h"
 #import "TwilightTheme.h"
+#import "Utils.h"
 
 @implementation LoadingFrameViewController {
     BOOL presented;
@@ -95,5 +96,19 @@
 - (BOOL)isShown {
     return presented;
 }
+
+#if !TARGET_OS_TV
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    UIViewController *presenter = self.presentingViewController;
+    if (presenter != nil) {
+        return [presenter supportedInterfaceOrientations];
+    }
+    return [Utils twilightLibraryOrientations];
+}
+
+- (BOOL)shouldAutorotate {
+    return YES;
+}
+#endif
 
 @end

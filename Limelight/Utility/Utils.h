@@ -40,6 +40,13 @@ FOUNDATION_EXPORT NSString *const deviceName;
 
 #if !TARGET_OS_TV
 + (void) launchUrl:(NSString*)urlString;
+
+/// iPhone streams are landscape. iPad keeps every orientation.
++ (UIInterfaceOrientationMask)twilightStreamOrientations;
+/// Portrait and both landscapes on iPhone. Every orientation on iPad.
++ (UIInterfaceOrientationMask)twilightLibraryOrientations;
+/// Asks the window scene to adopt orientations the view controller now allows.
++ (void)twilightRequestGeometryUpdateForViewController:(UIViewController *)viewController orientations:(UIInterfaceOrientationMask)orientations;
 #endif
 
 @end

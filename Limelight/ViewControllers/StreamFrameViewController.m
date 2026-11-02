@@ -16,6 +16,7 @@
 #import "MicrophoneCapture.h"
 #import "HttpManager.h"
 #import "TwilightTheme.h"
+#import "Utils.h"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -63,14 +64,47 @@
 #endif
 }
 
+- (void)viewWillAppear:(BOOL)animated
+{
+    [super viewWillAppear:animated];
+#if !TARGET_OS_TV
+    [self twilightApplyStreamOrientation];
+#endif
+}
+
 - (void)viewDidAppear:(BOOL)animated
 {
     [super viewDidAppear:animated];
     
 #if !TARGET_OS_TV
     [[self revealViewController] setPrimaryViewController:self];
+    [self twilightApplyStreamOrientation];
 #endif
 }
+
+#if !TARGET_OS_TV
+- (void)twilightApplyStreamOrientation {
+    if (UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPhone) {
+        return;
+    }
+    [Utils twilightRequestGeometryUpdateForViewController:self orientations:[Utils twilightStreamOrientations]];
+}
+
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+    [coordinator animateAlongsideTransition:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+        (void)context;
+        [self layoutLaunchCard];
+        [self layoutHudBar];
+        [self layoutEndMenu];
+    } completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+        (void)context;
+        [self layoutLaunchCard];
+        [self layoutHudBar];
+        [self layoutEndMenu];
+    }];
+}
+#endif
 
 #if TARGET_OS_TV
 - (void)controllerPauseButtonPressed:(id)sender {
@@ -1024,6 +1058,20 @@
 
 - (BOOL)shouldAutorotate {
     return YES;
+}
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return [Utils twilightStreamOrientations];
+}
+
+- (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation {
+    if (UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPhone) {
+        return [super preferredInterfaceOrientationForPresentation];
+    }
+    if (UIDevice.currentDevice.orientation == UIDeviceOrientationLandscapeLeft) {
+        return UIInterfaceOrientationLandscapeRight;
+    }
+    return UIInterfaceOrientationLandscapeLeft;
 }
 
 - (BOOL)prefersPointerLocked {

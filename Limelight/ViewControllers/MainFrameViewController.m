@@ -1169,6 +1169,8 @@ static NSMutableSet* hostList;
     [self.navigationController setNavigationBarHidden:YES animated:NO];
     // Popping the stream does not always lay the grid out again. The bar
     // lives outside the collection view, so put it back before the first frame.
+    // The stream forced landscape. Allow portrait again and follow the phone.
+    [Utils twilightRequestGeometryUpdateForViewController:self orientations:[Utils twilightLibraryOrientations]];
     [self restoreShellBar];
 #endif
     
@@ -1539,6 +1541,18 @@ static NSMutableSet* hostList;
 #if !TARGET_OS_TV
 - (BOOL)shouldAutorotate {
     return YES;
+}
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return [Utils twilightLibraryOrientations];
+}
+
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+    [coordinator animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+        (void)context;
+        [self restoreShellBar];
+    }];
 }
 #endif
 
