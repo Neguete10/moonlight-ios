@@ -13,6 +13,7 @@
 
 #import "DataManager.h"
 #include "Limelight.h"
+#include <string.h>
 
 @import GameController;
 @import AudioToolbox;
@@ -82,6 +83,130 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
     
     [controller.leftTriggerMotor setMotorAmplitude:leftTrigger];
     [controller.rightTriggerMotor setMotorAmplitude:rightTrigger];
+}
+
+// Host 0x5503 bytes are the DualSense trigger effect block: a type byte plus
+// 10 parameter bytes, already split by moonlight-common-c.
+//
+// GameController exposes five modes. These host types map onto them:
+//   0x00, 0x05  off
+//   0x01        feedback (start position, strength)
+//   0x02        weapon (start, end, strength)
+//   0x06        vibration (frequency, unused, amplitude). SDL's rigid preview
+//               is 0x01 and its vibration preview is 0x06.
+//   0x22        slope feedback (start, end, start strength, end strength)
+//
+// These host types have no GameController mode. The trigger is turned off:
+//   0x21 multiple-position feedback (ten independent zones)
+//   0x23 multiple-position vibration
+//   0x25 extended weapon
+//   0x26 bow
+//   0x27 galloping
+//   0x28 machine
+//   any other type
+// Raw USB and Bluetooth output reports are a Mac path and are not sent here.
+static float dualSenseUnit(uint8_t value) {
+    return (float)value / 255.0f;
+}
+
+static float dualSenseEnd(float start, float end) {
+    if (end > start) {
+        return end;
+    }
+    float bumped = start + (1.0f / 255.0f);
+    if (bumped > 1.0f) {
+        bumped = 1.0f;
+    }
+    return bumped;
+}
+
+static void applyDualSenseTrigger(id trigger, uint8_t type, const uint8_t *params) {
+    if (@available(iOS 14.5, tvOS 14.5, *)) {
+        GCDualSenseAdaptiveTrigger *adaptive = trigger;
+        uint8_t safe[DS_EFFECT_PAYLOAD_SIZE];
+        memset(safe, 0, sizeof(safe));
+        if (params != NULL) {
+            memcpy(safe, params, sizeof(safe));
+        }
+        switch (type) {
+            case 0x00:
+            case 0x05:
+                [adaptive setModeOff];
+                return;
+            case 0x01:
+                [adaptive setModeFeedbackWithStartPosition:dualSenseUnit(safe[0])
+                                         resistiveStrength:dualSenseUnit(safe[1])];
+                return;
+            case 0x02: {
+                float start = dualSenseUnit(safe[0]);
+                float end = dualSenseEnd(start, dualSenseUnit(safe[1]));
+                if (end <= start) {
+                    [adaptive setModeOff];
+                    return;
+                }
+                [adaptive setModeWeaponWithStartPosition:start
+                                             endPosition:end
+                                       resistiveStrength:dualSenseUnit(safe[2])];
+                return;
+            }
+            case 0x06:
+                [adaptive setModeVibrationWithStartPosition:0
+                                                  amplitude:dualSenseUnit(safe[2])
+                                                  frequency:dualSenseUnit(safe[0])];
+                return;
+            case 0x22: {
+                float start = dualSenseUnit(safe[0]);
+                float end = dualSenseEnd(start, dualSenseUnit(safe[1]));
+                if (end <= start) {
+                    [adaptive setModeOff];
+                    return;
+                }
+                [adaptive setModeSlopeFeedbackWithStartPosition:start
+                                                    endPosition:end
+                                                  startStrength:dualSenseUnit(safe[2])
+                                                    endStrength:dualSenseUnit(safe[3])];
+                return;
+            }
+            default: {
+                static BOOL logged[256];
+                if (!logged[type]) {
+                    logged[type] = YES;
+                    Log(LOG_W, @"DualSense effect 0x%02X has no GameController mode; that trigger is off", type);
+                }
+                [adaptive setModeOff];
+                return;
+            }
+        }
+    }
+}
+
+-(void) setAdaptiveTriggers:(uint16_t)controllerNumber eventFlags:(uint8_t)eventFlags typeLeft:(uint8_t)typeLeft typeRight:(uint8_t)typeRight left:(const uint8_t *)left right:(const uint8_t *)right {
+    if (@available(iOS 14.5, tvOS 14.5, *)) {
+        Controller* controller = [_controllers objectForKey:[NSNumber numberWithInteger:controllerNumber]];
+        if (controller == nil || ![controller.gamepad.extendedGamepad isKindOfClass:[GCDualSenseGamepad class]]) {
+            return;
+        }
+        GCDualSenseGamepad *gamepad = (GCDualSenseGamepad *)controller.gamepad.extendedGamepad;
+        if (eventFlags & DS_EFFECT_LEFT_TRIGGER) {
+            applyDualSenseTrigger(gamepad.leftTrigger, typeLeft, left);
+        }
+        if (eventFlags & DS_EFFECT_RIGHT_TRIGGER) {
+            applyDualSenseTrigger(gamepad.rightTrigger, typeRight, right);
+        }
+    }
+}
+
+-(void) clearAdaptiveTriggers {
+    if (@available(iOS 14.5, tvOS 14.5, *)) {
+        for (Controller* controller in [_controllers allValues]) {
+            if (![controller.gamepad.extendedGamepad isKindOfClass:[GCDualSenseGamepad class]]) {
+                continue;
+            }
+            GCDualSenseGamepad *gamepad = (GCDualSenseGamepad *)controller.gamepad.extendedGamepad;
+            [gamepad.leftTrigger setModeOff];
+            [gamepad.rightTrigger setModeOff];
+        }
+    }
 }
 
 - (void) setMotionEventState:(uint16_t)controllerNumber motionType:(uint8_t)motionType reportRateHz:(uint16_t)reportRateHz
@@ -1249,6 +1374,8 @@ static const double MOUSE_SPEED_DIVISOR = 1.25;
     
     _controllerNumbers = 0;
     
+    [self clearAdaptiveTriggers];
+
     for (Controller* controller in [_controllers allValues]) {
         [self cleanupControllerHaptics:controller];
         [self cleanupControllerMotion:controller];

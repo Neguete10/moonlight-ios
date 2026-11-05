@@ -32,8 +32,20 @@ FOUNDATION_EXPORT NSString *const deviceName;
 + (unsigned short) addressPortStringToPort:(NSString*)addressPort;
 + (NSString*) addressAndPortToAddressPortString:(NSString*)address port:(unsigned short)port;
 
+// Hardware AV1 decode (A17 Pro / M3 and later). Runtime check, not a device list.
++ (BOOL)av1HardwareDecodeSupported;
+
+// The current display can present HDR10. Runtime check, not a device list.
++ (BOOL)displaySupportsHDR10;
+
 #if !TARGET_OS_TV
 + (void) launchUrl:(NSString*)urlString;
+
+/// iPhone is landscape left and right only. iPad keeps every orientation.
++ (UIInterfaceOrientationMask)twilightStreamOrientations;
++ (UIInterfaceOrientationMask)twilightLibraryOrientations;
+/// Asks the window scene to adopt orientations the view controller now allows.
++ (void)twilightRequestGeometryUpdateForViewController:(UIViewController *)viewController orientations:(UIInterfaceOrientationMask)orientations;
 #endif
 
 @end
