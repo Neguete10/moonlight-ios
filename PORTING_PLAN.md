@@ -1,424 +1,333 @@
 # Twilight on iOS, iPadOS, and visionOS
 
-Phase 1 is a scope. This document does not change the app. It compares [Twilight 7.1.0](https://github.com/Neguete10/twilight/releases/tag/v7.1.0) (`c2a0a038e94efc001abd7f8e7311c40163a44120`) with this tree (`02dc978`, moonlight-ios 9.0.2). The pinned `moonlight-common-c` is `f900dd4767759c7b9d0e93bcea666b55c69ea62f`.
+This started as a scope against Twilight 7.1.0 (`c2a0a038e94efc001abd7f8e7311c40163a44120`) and moonlight-ios 9.0.2 (`02dc978`). Pull requests #2 through #6 are on master (`494a982`). This file now records what those pulls landed and what is still open. It does not change the app.
 
-Twilight for Mac is a fork of Moonlight Qt, rebuilt on Andy Grundman's `v6.2.0-metal-v9b` tree. This repository is a fork of [moonlight-ios](https://github.com/moonlight-stream/moonlight-ios). The two clients share the GameStream protocol through moonlight-common-c. They do not share UI, settings storage, or a video renderer. Carrying a Mac feature means reimplementing its behavior on the UIKit client, not compiling the Qt sources.
+Twilight for Mac is a fork of Moonlight Qt. This repository is a fork of [moonlight-ios](https://github.com/moonlight-stream/moonlight-ios). The clients share the GameStream protocol through moonlight-common-c (`f900dd4767759c7b9d0e93bcea666b55c69ea62f`). They do not share UI, settings storage, or a video renderer.
+
+The submission worksheet is [APP_STORE.md](APP_STORE.md).
+
+## What #2–#6 landed
+
+### #2 — Rebrand, bitrate, overlay, Automatic codec
+
+Merged to master as `494a982`.
+
+- Display name Twilight on iPhone, iPad, and Apple TV. Bundle id `io.github.neguete10.twilight.ios` on both targets. That is not the Mac id `io.github.neguete10.twilight`.
+- Moonlight's signing team `DM46QST4M7` is gone. Signing stays automatic. Simulator builds turn signing off.
+- Preferences are `Twilight.sqlite` on iOS and iPadOS, and `Twilight_tvOS.bin` on tvOS.
+- The bitrate list runs from 0.5 Mb/s to 1 Gbps (`TWILIGHT_BITRATE_MAX_KBPS`). There is no Unlimited notch. A stored value above 1 Gbps is kept until the slider moves. A stream never requests more than 1.5 Gbps (`TWILIGHT_BITRATE_SEND_CAP_KBPS`).
+- The stats overlay includes `%.1f Mbps requested, %.1f Mbps estimated encoder target, %.1f Mbps measured`. The estimate is 80% of the request.
+- Automatic offers AV1 Main 8 when `VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)` is true, then HEVC when hardware HEVC exists, then H.264. PyroWave is not advertised. Xcode targets are still named Moonlight and Moonlight TV.
+
+### #3 — Adaptive bitrate, DualSense triggers, microphone, Vision Pro prep
+
+Merged into the phase 2 branch as `4593667`, and that branch is what #2 brought to master.
+
+- Adaptive bitrate is off until the user turns it on. The worker calls `api/abr/capabilities` and changes the rate only when the body contains `runtime_bitrate`. Stock Sunshine and GeForce Experience do not implement that endpoint, so the launch bitrate stays put. The overlay appends `%.1f Mbps adaptive` while the worker is running. Adaptive requests are capped at 500 Mb/s even when the slider is higher.
+- DualSense adaptive triggers go through `GCDualSenseAdaptiveTrigger` (off, feedback, weapon, vibration, slope feedback). Unmapped host effects turn that trigger off. Rumble stays on Core Haptics. There is no raw HID report.
+- Microphone passthrough is off by default and exists only on iPhone and iPad. Capture is 48 kHz mono Opus, sent as ENet type `0x3003`. `NSMicrophoneUsageDescription` is on the iOS plist only. tvOS does not open a capture device.
+- `LiSendRawControlStreamPacket` is not in the pinned common-c commit. A build phase runs `moonlight-common/apply-raw-control-packet.py` and inserts it into the checkout. The submodule pin is unchanged.
+- `UIRequiredDeviceCapabilities` is `arm64`, so Designed for iPad is not blocked on Vision Pro. `UIPreferredDefaultInterfaceOrientation` is landscape right.
+- CI includes a continue-on-error visionOS Simulator job. The Moonlight scheme has no native visionOS destination. The job says so and exits 0.
+
+### #4 — iOS 27 launch, App Store worksheet, AV1, quit on host
+
+Merged into the phase 3 branch as `b0e310c`.
+
+- The iOS target uses one `UIScene`. `SceneDelegate` builds the window and loads `iPhone.storyboard` or `iPad.storyboard` (iPad, and Designed for iPad on visionOS, including `UIUserInterfaceIdiomVision`). tvOS still launches from its storyboard.
+- The codec picker shows AV1 only when hardware decode works, matched by title. tvOS settings list Auto, H.264, HEVC, and AV1. A stored AV1 value on hardware that fails the runtime check is read back as Automatic. HDR can add AV1 Main 10 when the display supports HDR10. The host still has to offer that profile.
+- **Quit App on Host** (`quitAppAfter`) is off by default. A user end of the stream can send the existing quit-app request. Core Data current model is `Twilight v1.12`. tvOS stores the same key in its settings bundle.
+- `PrivacyInfo.xcprivacy` is in both app bundles. `APP_STORE.md` is the Connect worksheet. Release builds of both targets define `ENABLE_APP_STORE_RESTRICTIONS`.
+- The about sheet shows the GPL text and the App Store distribution exception. Settings has no separate license row.
+
+### #5 — Twilight shell
+
+Merged into the phase 4 branch as `a66026a`.
+
+- iPhone opens on the selected host's library. The host name and settings sit in the top bar. Hosts, pairing, wake, and removal stay in that shell. iPad, including Designed for iPad, keeps a host sidebar beside the library.
+- App tiles are squircles. A Desktop app is a banner with Stream and Quit. Settings open as a sheet. HDR has no beta label.
+- Stream start uses a launch card. In a stream, FPS, bitrate, and RTT sit in a HUD.
+- tvOS still uses the previous host list.
+
+### #6 — Layout, version row, landscape-only iPhone
+
+Merged into the phase 5 branch as `5ac3f8f`.
+
+- The shell bar stays in the safe area beside the collection view. The grid scrolls under it. The bar hides while a stream covers the grid and comes back when the stream ends, when the transition ends, and when the app returns to the foreground.
+- Tiles use a 2:3 cover. The column count follows the width. The host sheet is an opaque card. Settings controls wrap inside the margins. The launch card's progress bar stays inside the card. Custom resolution is entered in the app.
+- Settings shows `Version %@ (build %@)` after Quit App on Host.
+- iPhone is landscape-only: `UISupportedInterfaceOrientations` is landscape left and landscape right, hosted controllers return that mask, and scene connect requests landscape geometry so an upright phone still opens in landscape. The launch screen is landscape. iPad still allows portrait and both landscapes.
+
+## Still open
+
+These were in the original scope, or they showed up while #2–#6 landed, and they are not done.
+
+- A native visionOS target. The shipping binary is the iPad app. Reference clients for a later target are [Neo Moonlight](https://github.com/NeoVectorX/NeoMoonlight) and Moonlight XrOS ([moonlight-ios-vision](https://github.com/RikuKunMS2/moonlight-ios-vision)). A native target that consumes streamed game content can request `com.apple.developer.low-latency-streaming` only for a team Apple has allowed to use it. This build does not include that entitlement.
+- App Store Connect: create the Twilight record, pick screenshots, the age rating, and the privacy questionnaire, then upload a Release archive. The steps are in `APP_STORE.md`. The signing team is still chosen in Xcode. It is not in the project.
+- `MARKETING_VERSION` is still `9.0.2`, the moonlight-ios version this tree started from. Set Twilight's own version before the first upload if that number should not stay.
+- The GeForce Experience 100 Mb/s attribute clamp is still inside moonlight-common-c. The settings screen does not say that a 1 Gbps choice is clamped there. Sunshine uses the requested bitrate.
+- The stats overlay does not print a present-mode word. iPhone, iPad, Apple TV, and visionOS stay on the existing display-link lock (`preferredFrameRateRange` pinned to the stream frame rate). That is Twilight's ProMotion policy. Continuous VRR is not available on these platforms, and it should not be ported unless Apple exposes a continuous refresh range.
+- tvOS was not restyled. It still uses the host list from before the Twilight shell.
+- Device checks that CI cannot replace: a real stream, microphone passthrough, a DualSense, a launch on iOS 27 hardware, and the Designed for iPad window opening in landscape on Vision Pro.
+- Publishing `LiSendRawControlStreamPacket` into moonlight-common-c, if that repository can take the commit. Until then the build-phase patch is the copy that compiles.
+
+Explicitly not part of this port: PyroWave, a Core Audio spatial mixer, picture in picture, CoreHID, a GitHub update check, and the Mac quit-with-controller and cursor fixes.
 
 ## Platforms in this tree
 
 | Target | What exists today | visionOS |
 | --- | --- | --- |
-| `Moonlight` (`TARGETED_DEVICE_FAMILY` 1,2) | iPhone and iPad. Deployment target iOS 15.0. Storyboards `iPhone.storyboard` and `iPad.storyboard`. | No xrOS target. A compatible iPad app is the only visionOS path available without a new target. |
-| `Moonlight TV` (`TARGETED_DEVICE_FAMILY` 3) | Separate tvOS app. Same sources under `Limelight/`, settings in `Moonlight TV/Settings.bundle`. | Not applicable. |
-
-"Designed for iPad" on visionOS runs the iOS binary inside a visionOS window. It picks up iOS code changes and does not pick up a native immersive renderer. A native visionOS app would be a new target (CompositorServices or a UIKit-on-xrOS scene). That target is out of scope until the iPad app is the product.
-
-Both targets currently use the bundle id `com.moonlight-stream.Moonlight`, the display name Moonlight, and `DEVELOPMENT_TEAM` `DM46QST4M7`. Those three values belong to the upstream Moonlight app. They have to change before any Twilight build is signed or submitted. See [Rebranding](#rebranding).
+| `Moonlight` (`TARGETED_DEVICE_FAMILY` 1,2) | iPhone and iPad. Deployment target iOS 15.0. One scene. iPhone storyboard and iPad storyboard. iPhone is landscape-only. iPad allows portrait and landscape. | No xrOS target. Designed for iPad is the visionOS path. The window opens in landscape right. |
+| `Moonlight TV` (`TARGETED_DEVICE_FAMILY` 3) | Separate tvOS app. Shared sources under `Limelight/`. Settings in `Moonlight TV/Settings.bundle`. The host list is the pre-shell UI. | Not applicable. |
 
 ## Effort and feasibility
 
-Effort:
+The tables below use the same scale as the original scope.
 
-- **S** — the screen, callback, or request already exists. The change is a limit, a mask, or a label.
-- **M** — a new setting or a new use of an API the app already links (GameController, VideoToolbox, the existing HTTPS client).
-- **L** — a new capture pipeline, a moonlight-common-c API that is not in the pin, or a platform with no public API for the behavior.
+- **S** — a limit, a mask, or a label on a screen that already exists.
+- **M** — a new setting or a new use of an API the app already links.
+- **L** — a new capture pipeline, a common-c API that is not in the pin, or a platform with no public API for the behavior.
 
-Feasibility:
+Feasibility: **Ships** means the Twilight behavior can be done with public APIs. **Partial** means a useful subset ships. **Unavailable** means there is no supported API.
 
-- **Ships** — the Twilight behavior can be done with public APIs on that platform.
-- **Partial** — a useful subset ships. The Mac behavior does not.
-- **Unavailable** — there is no supported API, or the feature would not function.
-
-# 1. Features to carry from Twilight 7.1.0
-
-The seven behaviors below are the Phase 1 feature set. A short list of other 7.1.0 behavior follows them.
+# 1. Features carried from Twilight 7.1.0
 
 ## 1.1 Bitrate cap of 1 Gbps, with no Unlimited option
 
-Twilight (`app/settings/bitrate_choice.h`):
+**Status: shipped in #2.**
 
-- The slider and the typed field accept 0.5 Mb/s through 1 Gbps (`kMinKbps` 500, `kMaxKbps` 1,000,000). There is no Unlimited control.
-- A stored value of 500000, or the word `unlimited`, loads as 500 Mb/s. It is not remapped to the top of the slider. A stale `bitrateunlimited` key is ignored.
-- A stored number outside the field is kept until the user changes it. New input above 1 Gbps is rejected.
-- The number placed in the stream configuration is capped at 1,500,000 kbps (`kAbsoluteSendCapKbps`).
-- Sunshine reads `x-ml-video.configuredBitrateKbps` as the value the client sends. The overlay's encoder-target estimate is 80% of that request (the FEC budget). The label says it is an estimate.
-- GeForce Experience still clamps the NVIDIA bitrate attributes at 100 Mb/s. That clamp lives in `SdpGenerator.c` in moonlight-common-c (`adjustedBitrate > 100000`), and the pinned iOS submodule has the same clamp. Sunshine is unaffected because it uses `configuredBitrateKbps`.
+The slider and the tvOS list accept 0.5 Mb/s through 1 Gbps. There is no Unlimited control. A stored value above 1 Gbps is kept until the user moves the control. The value copied into the stream configuration is clamped at 1,500,000 kbps.
 
-This tree (`Limelight/ViewControllers/SettingsViewController.m`):
-
-- The iPhone and iPad slider is a table of fixed notches from 0.5 Mb/s to 150 Mb/s. The top entry is `150000` kbps. There is already no Unlimited notch.
-- `Moonlight TV/Settings.bundle/Root.plist` lists the same ceiling, 150 Mb/s, as a multi-value setting.
-- The chosen integer is stored in Core Data and copied into `StreamConfiguration.bitRate`.
-
-Work:
-
-- Raise the iOS slider and the tvOS multi-value list so the highest choice the user can make is 1,000,000 kbps, and the lowest stays 500 kbps.
-- Keep the control as a finite list or a finite slider. Do not add an Unlimited segment.
-- On load, leave a stored value above 1 Gbps unchanged until the user moves the control, matching Twilight. This store has never written the string `unlimited`, so that legacy word has nothing to migrate.
-- Before `LiStartConnection`, clamp the outgoing value at 1,500,000 kbps.
-- Leave the GFE 100 Mb/s attribute clamp inside moonlight-common-c. Document it in the settings UI so a 1 Gbps choice is not surprising on GeForce Experience: Sunshine can use the request, GeForce Experience will not.
+GeForce Experience still clamps the NVIDIA bitrate attributes at 100 Mb/s inside `SdpGenerator.c`. That clamp was left in place. Saying so in the settings UI is still open. Sunshine reads the bitrate the client sends.
 
 | Platform | Effort | Feasibility | Notes |
 | --- | --- | --- | --- |
-| iOS | S | Ships | `bitrateTable` in `SettingsViewController.m` and the bitrate label in `iPhone.storyboard`. |
-| iPadOS | S | Ships | Same controller, `iPad.storyboard`. |
-| tvOS | S | Ships | Extend `Moonlight TV/Settings.bundle/Root.plist`. The focus engine already edits this list. |
+| iOS | S | Ships | `bitrateTable` in `SettingsViewController.m`. |
+| iPadOS | S | Ships | Same controller. |
+| tvOS | S | Ships | `Moonlight TV/Settings.bundle/Root.plist` includes 1 Gbps. |
 | visionOS, Designed for iPad | S | Ships | Inherits the iPad slider. |
-| visionOS, native | S | Ships | Same limit, applied when a native settings screen exists. The cap itself is not a renderer feature. |
+| visionOS, native | S | Ships | Same limit, once a native settings screen exists. |
 
 ## 1.2 Opt-in adaptive bitrate (Vibepollo `/bitrate`)
 
-Twilight (`app/streaming/adaptive_bitrate.h`, `adaptive_bitrate.cpp`, `app/backend/nvhttp.cpp`):
+**Status: shipped in #3.**
 
-- The setting `enableAdaptiveBitrate` is off until the user turns it on.
-- A worker thread, separate from the renderer and the input loop, calls `GET api/abr/capabilities` on the existing paired HTTPS client.
-- The host is treated as capable when the JSON body contains `"runtime_bitrate"`. Vibepollo returns that feature name with `supported: false` when the client, rather than the host, decides the rate. Twilight treats the feature name as the signal. A failed or empty capability check logs and leaves the launch bitrate alone.
-- While the stream runs, the worker samples about once a second. It cuts the wire target to 70% on loss above 2%, any FEC failure, an RTT spike, or the poor-connection flag, and not more often than once a second. The floor is 5 Mb/s, or the user's bitrate when that is lower. After 10 seconds clean (loss at or below 0.5%), it raises the wire target by 5%, and never above the user's bitrate.
-- The user's bitrate is capped at 500,000 kbps for this controller (`kHostBitrateLimitKbps`), even when the slider is higher. The initial stream configuration can still carry the higher slider value.
-- The value written to the host is the encoder rate, not the wire rate: `wire * 0.80 - audio - 500` kbps, with audio assumed at 512 kbps stereo on a LAN and 96 kbps stereo remotely, scaled by channel pairs. The request is `bitrate?bitrate=<kbps>` (`NvHTTP::setBitrate`). The host's XML `bitrate` element is the applied value. A rejected request is logged and the stream continues.
+The setting is off until the user turns it on, on iPhone, iPad, and Apple TV. A worker off the decode and input threads calls `GET api/abr/capabilities`. The host counts as capable when the JSON body contains `runtime_bitrate`, including when that feature says `supported: false`. A failed or empty check logs and leaves the launch bitrate alone.
 
-This tree:
-
-- `HttpManager` already speaks the paired Sunshine/GFE HTTPS API. It has no `/bitrate` or `api/abr/capabilities` call.
-- There is no adaptive-bitrate setting in the storyboards or the tvOS settings bundle.
-- `StreamManager` already surfaces a poor-connection warning. That flag is the same input Twilight's worker ORs into a cut.
-
-Work:
-
-- Add an opt-in toggle, default off, on iPhone, iPad, and tvOS.
-- Add the two requests on the existing HTTPS client. Use the same certificate and host address as launch and resume.
-- Port the controller rules above. Keep the worker off the decode and input threads.
-- If the capability check fails, or the body has no `runtime_bitrate`, do not change the bitrate and do not fail the stream.
-- Cap adaptive requests at 500,000 kbps. Show the live wire target on the stats overlay (section 1.3).
-- Stock Sunshine and GeForce Experience do not implement this endpoint. The feature stays off for those hosts even when the toggle is on.
+While the stream runs, the worker samples about once a second. It cuts the wire target to 70% on loss above 2%, any FEC failure, an RTT spike, or the poor-connection flag, and not more often than once a second. The floor is 5 Mb/s, or the user's bitrate when that is lower. After 10 seconds clean (loss at or below 0.5%) it raises the wire target by 5%, never above the user's bitrate. Adaptive requests are capped at 500,000 kbps. The value written to the host is the encoder rate: `wire * 0.80 - audio - 500` kbps. A rejected request is logged and the stream continues.
 
 | Platform | Effort | Feasibility | Notes |
 | --- | --- | --- | --- |
-| iOS | M | Ships | New toggle plus two HTTPS calls. No new system permission. |
+| iOS | M | Ships | Toggle plus the two HTTPS calls. |
 | iPadOS | M | Ships | Same code as iOS. |
-| tvOS | M | Ships | Same client. The toggle lives in the settings bundle. |
+| tvOS | M | Ships | Toggle in the settings bundle. |
 | visionOS, Designed for iPad | M | Ships | Inherits the iOS toggle and the worker. |
-| visionOS, native | M | Ships | Same worker once a native toggle exists. The endpoint is not platform-specific. |
+| visionOS, native | M | Ships | Same worker once a native toggle exists. |
 
 ## 1.3 Requested, target, and actual bitrate on the stats overlay
 
-Twilight (`BitrateChoice::formatBitrateOverlay`, `app/streaming/stats.cpp`):
+**Status: shipped in #2, adaptive suffix in #3.** The separate in-stream HUD (FPS, bitrate, RTT) shipped with the shell in #5. A present-mode word is still open. See [VRR](#17-vrr-handling).
 
-The classic stats overlay includes one bitrate line:
+The classic line is:
 
 `%.1f Mbps requested, %.1f Mbps estimated encoder target, %.1f Mbps measured`
 
 When adaptive bitrate has a live wire target, it appends `%.1f Mbps adaptive`.
 
-- Requested is the bitrate this stream asked for at launch (`streamRequestedBitrateKbps`).
-- Estimated encoder target is 80% of that request. It is not clamped by the GeForce Experience 100 Mb/s cap or by the 500 Mb/s `/bitrate` cap.
-- Measured is the smoothed average of received video bytes.
-- The separate Twilight HUD (frame rate, bitrate, latency, End) is a second overlay and is off by default. This phase carries the classic line, not that HUD.
-
-This tree (`StreamManager.getStatsOverlayText`, `StreamFrameViewController`):
-
-- A `UITextView` overlay already updates about once a second when the stats overlay setting is on.
-- The text is resolution, FPS, codec name, network drop percentage, RTT, and host processing latency. It does not include a bitrate.
-- `video_stats_t` in `Connection.h` counts frames and host latency. It does not count bytes, so a measured rate has to be added beside the existing frame counters.
-- The tvOS settings bundle has no stats-overlay toggle. The shared stream view can draw the overlay once the setting is reachable on tvOS.
-
-Work:
-
-- Record received video bytes in the existing one-second stats window.
-- Extend the overlay string with requested, estimated encoder target (80% of requested), and measured megabits per second, in that order, plus the adaptive wire target when the worker is running.
-- Add the tvOS toggle next to the other video options.
+Requested is the bitrate this stream asked for at launch. Estimated encoder target is 80% of that request. Measured is received video bytes over the stats window. The tvOS settings bundle already had a statistics-overlay toggle, and the stream view honors it. #3 did not add a second one.
 
 | Platform | Effort | Feasibility | Notes |
 | --- | --- | --- | --- |
-| iOS | S | Ships | `StreamFrameViewController` already owns the overlay. |
+| iOS | S | Ships | `StreamManager` builds the line. |
 | iPadOS | S | Ships | Shared stream view. |
-| tvOS | S | Ships | Shared stream view, plus a settings-bundle toggle that is missing today. |
+| tvOS | S | Ships | Shared stream view and the existing settings-bundle toggle. |
 | visionOS, Designed for iPad | S | Ships | The iPad overlay draws inside the iPad window. |
 | visionOS, native | S | Ships | Same string, once a native stream view exists. |
 
 ## 1.4 DualSense adaptive triggers and rumble
 
-Twilight (`app/streaming/session.cpp`, `app/streaming/input/dualsense_effects.*`, `dualsense_hid_mac.mm`, `gamepad.cpp`):
+**Status: shipped in #3.** Rumble was already Core Haptics. Adaptive triggers are the high-level GameController modes, not the Mac HID report.
 
-- Rumble and trigger rumble are the existing Moonlight callbacks (`clRumble`, `clRumbleTriggers`).
-- Adaptive triggers are a later callback, `ConnListenerSetAdaptiveTriggers`. Sunshine sends them as control packet `0x5503`: controller index, event flags, a type byte and 10 parameter bytes per trigger.
-- Twilight copies that payload into the 47-byte `DS5EffectsState` SDL already uses, then calls `SDL_GameControllerSendEffect`. If SDL refuses the report, the Mac build writes a USB output report (id `0x02`, 48 bytes) or a Bluetooth output report (id `0x31`, 78 bytes, CRC32) through IOHID.
-- That HID fallback is macOS-only. `DualSenseHidOutput` returns false on other platforms.
-
-This tree:
-
-- `ControllerSupport` already implements `rumble` and `rumbleTriggers` with `HapticContext` (`CHHapticEngine` continuous events, amplitude scaled by 65535).
-- On iOS 14 and tvOS 14, a controller that advertises `GCHapticsLocalityHandles` is reported as `LI_CCAP_RUMBLE`, and one that advertises `GCHapticsLocalityTriggers` is reported as `LI_CCAP_TRIGGER_RUMBLE`.
-- A `GCDualSenseGamepad` (iOS 14.5 / tvOS 14.5) is reported to the host as `LI_CTYPE_PS`.
-- The pinned `Limelight.h` declares `ConnListenerSetAdaptiveTriggers`. `Connection.m` initializes connection callbacks through `setControllerLED` and does not assign `setAdaptiveTriggers`. Host `0x5503` packets are ignored.
-- There is no IOHID, and an App Store build cannot add one. Raw DualSense output reports are a macOS path.
-
-Work for rumble:
-
-- Keep the Core Haptics motors. Confirm on a DualSense that handle rumble and trigger rumble both fire when the host sends them, on iPhone, iPad, and Apple TV. The code path is already shared.
-- Trigger rumble (motors) and adaptive triggers (resistance effects) stay separate callbacks, as they are in Twilight.
-
-Work for adaptive triggers:
-
-- Assign `setAdaptiveTriggers` and deliver the effect on the main queue, the same way `rumbleTriggers` is delivered.
-- When `controller.extendedGamepad` is a `GCDualSenseGamepad`, map the host effect type onto `GCDualSenseAdaptiveTrigger`: off, feedback, weapon, vibration, and slope feedback. Those are the modes the GameController framework exposes.
-- Effects that do not correspond to one of those modes turn that trigger off. The Mac HID report can represent effect types the iOS class cannot. The iOS result is a subset of the host effect, which is the public API Apple ships.
-- Clear both triggers when the stream ends, including when the app leaves the stream view.
-- Skip controllers that are not a DualSense. An Xbox pad and the on-screen controls have no adaptive triggers.
+`setAdaptiveTriggers` is delivered on the main queue. A `GCDualSenseGamepad` maps host effects onto off, feedback, weapon, vibration, and slope feedback. Effects the class cannot express turn that trigger off. Both triggers are cleared when the stream ends. Xbox pads and the on-screen controls are skipped. Trigger rumble and adaptive triggers stay separate callbacks.
 
 | Platform | Effort | Feasibility | Notes |
 | --- | --- | --- | --- |
-| iOS | M | Partial | Rumble already ships through Core Haptics. Adaptive triggers ship as `GCDualSenseAdaptiveTrigger` modes, not as raw HID. Needs a DualSense paired over Bluetooth. |
-| iPadOS | M | Partial | Same GameController path. USB-C pairing of a DualSense uses the same `GCController`. |
-| tvOS | M | Partial | `GCDualSenseGamepad` is available on tvOS 14.5+, and the deployment target is newer. Apple TV pairs a DualSense from the system Bluetooth UI. The same mode mapping applies. |
-| visionOS, Designed for iPad | M | Partial | The iOS binary's GameController code runs in the compatible app. A DualSense paired to the Vision Pro is a `GCController`. |
-| visionOS, native | M | Partial | Same framework once a native target links GameController. Still the high-level trigger modes, not HID. |
+| iOS | M | Partial | Rumble through Core Haptics. Triggers through `GCDualSenseAdaptiveTrigger`. |
+| iPadOS | M | Partial | Same GameController path. |
+| tvOS | M | Partial | `GCDualSenseGamepad` on tvOS 14.5+. |
+| visionOS, Designed for iPad | M | Partial | The iOS binary's GameController code runs in the compatible app. |
+| visionOS, native | M | Partial | Same framework once a native target links GameController. Still not HID. |
 
 ## 1.5 Microphone passthrough
 
-Twilight (`app/streaming/audio/microphone/`):
+**Status: shipped in #3 on iPhone and iPad.** tvOS stays without the toggle, which is the intended scope.
 
-- Opt-in. `MicrophoneCapture::start` returns false when permission is missing, the control stream is not encrypted, or the device cannot be opened. A false return must not fail the stream.
-- Capture is 48 kHz mono, 20 ms (960 samples), Opus at 64 kbps, DTX off, so a quiet mic still produces packets.
-- The ENet payload is packet type `0x3003`: a 2-byte big-endian sequence, a channel count of 1, a flags byte of 0, then one Opus packet. The Opus packet is at most 247 bytes, because moonlight-common-c copies the control payload into a 256-byte buffer with a 4-byte header (`paylen` must be 251 or less).
-- The bytes are sent with `LiSendRawControlStreamPacket`. Stock Moonlight has no microphone path. Stock LizardByte Sunshine does not decode `0x3003`. GeForce Experience does not receive it. The host that plays the audio is a Vibepollo / Vibelight build. The older `0x5510` microphone header and `LiSendMicrophoneOpusDataEx` are different protocols, and Twilight does not emit them.
+Capture is 48 kHz mono, 20 ms, Opus at 64 kbps, DTX off. The ENet payload is type `0x3003`: a 2-byte big-endian sequence, one channel, flags 0, then one Opus packet of at most 247 bytes. Denied permission, a missing input route, or a host that never plays the packets leaves the stream running. There is no audio background mode. Stock Sunshine does not decode `0x3003`.
 
-This tree:
-
-- Opus is already linked, and the stream already decodes host audio with `OpusMSDecoder`.
-- There is no microphone session, no `NSMicrophoneUsageDescription`, and no privacy manifest.
-- `LiSendRawControlStreamPacket` is not declared in `Limelight.h` at the iOS pin `f900dd47`, and it is not declared at Twilight's own submodule pin `7feb0a66` either. Twilight's capture file calls it. The iOS port needs that symbol in moonlight-common-c before any packet can be sent on the encrypted control stream. Adding a side UDP socket would be a different protocol than 7.1.0.
-
-Work:
-
-- Add `LiSendRawControlStreamPacket` to the pinned moonlight-common-c (encrypted control stream, caller-supplied packet type and payload, the existing 256-byte ceiling). Keep the payload layout identical to Twilight so a Vibepollo host accepts it.
-- Capture with `AVAudioEngine`'s input node, convert to 48 kHz mono, encode 20 ms Opus frames with the linked libopus, and send them only after the control stream is up.
-- Add an opt-in toggle, default off. Denied permission, a missing input route, or a host that never asked for audio leaves the stream running.
-- Add `NSMicrophoneUsageDescription` that says the microphone is sent to the user's own streaming host. Do not start the capture engine until the toggle is on.
-- Stop capture when the stream ends. Do not add the `audio` background mode; the stream UI is in the foreground, and a background mode is a separate review question.
+The send function is inserted at build time because it is not in pin `f900dd47`. Moving that function into the published submodule is still open.
 
 | Platform | Effort | Feasibility | Notes |
 | --- | --- | --- | --- |
-| iOS | L | Ships | `AVAudioEngine` plus the missing common-c send. Foreground only. The host must understand `0x3003`. |
-| iPadOS | L | Ships | Same capture. iPad mic and connected headsets both appear as the input route. |
-| tvOS | L | Unavailable | The Siri Remote microphone is not a general capture device for a continuous Opus uplink, and a tvOS mic prompt for PC game chat is a review risk with no useful hardware behind it. Do not add the toggle on tvOS. |
-| visionOS, Designed for iPad | L | Partial | The iOS permission prompt and `AVAudioEngine` path run in the compatible app. Routing is the headset mic, and visionOS may refuse the session even when iPadOS would allow it. Failure must not drop the stream. |
-| visionOS, native | L | Partial | A native target can request the microphone with the same usage string. It still depends on the common-c send, and it needs its own audio session design. |
+| iOS | L | Ships | `AVAudioEngine` plus the build-phase send. Foreground only. |
+| iPadOS | L | Ships | Same capture. |
+| tvOS | L | Unavailable | No toggle. The Siri Remote mic is not a general Opus uplink. |
+| visionOS, Designed for iPad | L | Partial | The iOS path runs in the compatible app. A refused audio session must not drop the stream. |
+| visionOS, native | L | Partial | Same usage string, once a native target has its own audio session. |
 
 ## 1.6 Automatic codec: AV1 or HEVC, never PyroWave
 
-Twilight (`Session` video-format selection in `app/streaming/session.cpp`, codec list in `app/gui/ui/v2/SettingsSheetV2.qml`):
+**Status: shipped in #2 and tightened in #4.**
 
-- The settings list is Automatic, H.264, HEVC, and AV1. PyroWave is appended only when a PyroWave backend was compiled (`hasPyroWaveVulkan` or `hasPyroWaveMetal`).
-- Automatic builds a candidate list of AV1, then HEVC, then H.264, including the 10-bit and 4:4:4 profiles the user enabled. It never appends `VIDEO_FORMAT_PYROWAVE*`. Those four formats are inserted only for the forced PyroWave choice, which replaces the list.
-- On Apple platforms, if HEVC hardware decode works, AV1 is deprioritized: it stays in the mask, and HEVC is offered first. HDR with no HEVC hardware decoder leaves AV1 at the top. H.264 remains the last fallback.
-- The Mac README states the same rule: Automatic stays on HEVC or AV1 and does not advertise PyroWave.
+Automatic sets AV1 Main 8 when hardware AV1 decode works, then HEVC when hardware HEVC exists, then H.264. moonlight-common-c takes AV1 when the host's RTSP DESCRIBE offers `AV1/90000`, otherwise HEVC, otherwise H.264. An explicit AV1 choice uses the same fallback. AV1 Main 10 is added when AV1 is in the mask, HDR is on, and the display supports HDR10. The iPhone and iPad picker hides the AV1 segment when the hardware check fails. tvOS cannot hide the row per device, so an unsupported stored AV1 value reads as Automatic.
 
-This tree (`MainFrameViewController.prepareToStreamApp`, `Utils av1HardwareDecodeSupported`):
-
-- The storyboard segments are H.264, HEVC, AV1, and Auto. AV1 is removed when `VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)` is false. The remaining segments are matched by title. There is no PyroWave segment.
-- Automatic sets AV1 Main 8 when that hardware check passes, then HEVC when hardware HEVC exists, then H.264. moonlight-common-c takes AV1 when the host's RTSP DESCRIBE offers `AV1/90000`, otherwise HEVC, otherwise H.264. An explicit AV1 choice uses the same fallback.
-- AV1 Main 10 is added when AV1 is in the mask, HDR is on, and `AVPlayer.availableHDRModes` includes HDR10. HEVC Main 10 is the HDR fallback. The host still has to report `SCM_AV1_MAIN10` before common-c selects the 10-bit AV1 profile.
-- The tvOS settings bundle lists Auto, H.264, HEVC, and AV1 (`preferredCodec` 0, 1, 2, 3). The system Settings bundle cannot hide a row per device, so a stored AV1 value on hardware that fails the runtime check is read back as Automatic.
-- Hardware AV1 decode is an A17 Pro / M3-class feature and later. The check is `VTIsHardwareDecodeSupported`, not a device list. Apple TV models through the A15, and the first Vision Pro (M2), do not report hardware AV1. Automatic on those devices is HEVC, then H.264.
-
-YUV 4:4:4 stays a Mac-only toggle. This client does not advertise PyroWave.
+This is not the Mac order. Twilight on Apple offers HEVC ahead of AV1 when HEVC hardware decode works. The iOS client prefers AV1 when the device can decode it. YUV 4:4:4 stays a Mac-only toggle. PyroWave is not a choice and is not advertised.
 
 | Platform | Effort | Feasibility | Notes |
 | --- | --- | --- | --- |
-| iOS | S | Ships | Mask change in `prepareToStreamApp`. The VideoToolbox decoder already accepts AV1 and HEVC. PyroWave is omitted. |
-| iPadOS | S | Ships | Same function. AV1 appears on iPad models whose SoC reports hardware AV1. |
-| tvOS | S | Partial | Automatic prefers AV1 only when `VTIsHardwareDecodeSupported` is true, otherwise HEVC. The settings row cannot be hidden per device; an unsupported AV1 value is read as Automatic. No PyroWave. |
+| iOS | S | Ships | Mask in `prepareToStreamApp`. The picker drops AV1 when hardware decode is missing. |
+| iPadOS | S | Ships | Same function. |
+| tvOS | S | Partial | Automatic follows the same hardware check. The AV1 row cannot be hidden per Apple TV. |
 | visionOS, Designed for iPad | S | Partial | Same mask as the iPad app. First-generation Vision Pro does not hardware-decode AV1, so Automatic is HEVC. |
-| visionOS, native | S | Partial | Same rule once a native target calls the same selector. Still no PyroWave. |
+| visionOS, native | S | Partial | Same rule once a native target calls the same selector. |
 
 ## 1.7 VRR handling
 
-Twilight (`app/streaming/video/ffmpeg-renderers/vt_metal.mm`):
+**Status: policy kept. The overlay label is still open.**
 
-- Present modes are Auto, Fixed, VRR, and No VSync.
-- Auto selects VRR only when `NSScreen` reports a refresh-interval range and the window is fullscreen. Otherwise it uses fixed vsync, or no vsync when vsync is off.
-- A ProMotion display (`displayUpdateGranularity > 0`, the MacBook Pro panels) is detected as a range and then treated as a fixed display at its maximum rate. Twilight's comment says those panels only hit a few discrete rates (120 Hz, 60 Hz, and a few lower ones) and behave badly if driven as continuous VRR. A developer flag can override that.
-- Real VRR presentation waits on `present(afterMinimumDuration:)` using average GPU time, optionally the frame PTS delta, and forces immediate frame pacing.
-- The stats overlay prints the active mode as `VRR`, `fixed vsync`, or `no vsync`.
+iPhone and iPad ProMotion panels are the displays Twilight refuses to treat as continuous VRR. This tree already pins `preferredFrameRateRange` so minimum, maximum, and preferred are the stream frame rate, and it clamps the stream to `UIScreen.maximumFramesPerSecond`. That is the behavior to keep.
 
-This tree (`VideoDecoderRenderer.start`, `MainFrameViewController.prepareToStreamApp`):
+Apple TV has no ProMotion panel. An `AVDisplayManager` mode switch was not added. visionOS composites at a fixed rate. A compatible iPad app's display link runs inside that compositor.
 
-- On iOS 15 and tvOS 15, the display link's `preferredFrameRateRange` is pinned so minimum, maximum, and preferred are all the stream frame rate. That asks ProMotion to lock to the stream rate. It is the fixed-rate behavior, not Mac VRR.
-- The requested frame rate is clamped to `UIScreen.maximumFramesPerSecond`.
-- Frame pacing, when enabled, holds one frame if the measured display rate is at least 90% of the stream rate.
-- There is no present-mode setting.
-
-What each platform can do:
-
-- iPhone and iPad ProMotion panels are the same class of display Twilight refuses to treat as VRR. The matching behavior is the one this tree already has: lock the display link to the stream frame rate, and clamp the stream to the panel's maximum. Do not port `present(afterMinimumDuration:)` as if the panel were a variable-refresh monitor. An external display on iPadOS does not give an app HDMI VRR.
-- Apple TV has no ProMotion panel. `AVDisplayManager` can request a content refresh rate for video playback. That is a fixed mode switch, not VRR, and it fights the GameStream frame pacer. Leave tvOS on the display-link lock.
-- visionOS composites at a fixed rate (90 Hz on the first Vision Pro). A compatible iPad app's display link runs inside that compositor. A native app's CompositorServices frame schedule is also fixed. There is no VRR present mode to select.
-
-Work for this phase is the policy, not a new renderer:
-
-- Treat iPhone, iPad, Apple TV, and visionOS as fixed-refresh, using the existing display-link lock and the existing FPS clamp.
-- When the stats overlay gains a present-mode word (section 1.3), print the fixed mode. Do not print VRR.
-- Revisit VRR only if Apple later exposes a continuous refresh range to these platforms. The Mac Metal present path is not that API.
+Remaining: when the stats overlay gains a present-mode word, print the fixed mode. Do not print VRR.
 
 | Platform | Effort | Feasibility | Notes |
 | --- | --- | --- | --- |
-| iOS | S | Partial | ProMotion stays locked to the stream rate, which is Twilight's ProMotion policy. Continuous VRR is unavailable. |
+| iOS | S | Partial | ProMotion stays locked to the stream rate. Continuous VRR is unavailable. |
 | iPadOS | S | Partial | Same lock. External displays do not add an app-controlled VRR range. |
-| tvOS | S | Partial | Keep the display-link lock. Do not add an `AVDisplayManager` mode switch in this phase. |
+| tvOS | S | Partial | Display-link lock. No `AVDisplayManager` mode switch. |
 | visionOS, Designed for iPad | S | Partial | The iPad lock runs inside a fixed compositor rate. |
-| visionOS, native | S | Unavailable | No app-controlled VRR. A native target would schedule frames on the compositor's fixed rate. |
+| visionOS, native | S | Unavailable | No app-controlled VRR. |
 
 ## 1.8 Other Twilight 7.1.0 behavior
 
-These are in the 7.1.0 release and are not part of the seven items above. They are listed so a later phase does not assume they came along.
-
-| Mac behavior | Carry? | Why |
+| Mac behavior | Carry? | Where it stands |
 | --- | --- | --- |
-| PyroWave, Metal or Vulkan, opt-in | No | Automatic must not advertise it, and this client has no PyroWave decoder. Forcing it would require a new renderer and a host that encodes PyroWave. |
-| Core Audio spatial mixer and head tracking | Later | Playback here is SDL and Opus, not the Mac Core Audio renderer. A separate audio project. |
-| Picture in picture | Later | iOS picture in picture expects an `AVPlayerLayer`. The stream is a VideoToolbox display layer. tvOS and visionOS windowing are different again. |
-| CoreHID raw mouse | No | macOS IOHID. iPad already has `GCMouse` through the existing controller code. |
-| Game Mode | Already declared | Both Info.plists set `LSSupportsGameMode`. A compatible iPad app on visionOS does not get a Mac-style Game Mode scheduling pass. |
-| Twilight HUD and performance graphs | No for this phase | Section 1.3 carries the classic bitrate line only. |
-| GitHub update check | No | An App Store build that offers an update outside the store is a review rejection. Updates go through App Store Connect. |
-| Own Mac bundle id so Local Network permission does not collide with Moonlight | Yes, as rebranding | Section 2. The iOS mechanism is the bundle id and the usage strings, not a Mac TCC identity. |
+| PyroWave, Metal or Vulkan, opt-in | No | Not advertised. This client has no PyroWave decoder. |
+| Core Audio spatial mixer and head tracking | Later | Playback here is SDL and Opus. |
+| Picture in picture | Later | The stream is a VideoToolbox display layer, not an `AVPlayerLayer`. |
+| CoreHID raw mouse | No | iPad already has `GCMouse` through the controller code. |
+| Game Mode | Already declared | Both Info.plists set `LSSupportsGameMode`. |
+| Twilight HUD and performance graphs | HUD shipped, graphs no | #5 added the FPS, bitrate, and RTT HUD. Section 1.3 is the classic bitrate line. Performance graphs were not ported. |
+| GitHub update check | No | Updates go through App Store Connect. |
+| Separate bundle id so Local Network permission does not collide with Moonlight | Shipped | Section 2. The id is `io.github.neguete10.twilight.ios`. |
 | Quit-with-controller crash fix, cursor and trackpad fixes | No | Those are in the Qt/SDL Mac shell. |
+| Quit the app on the host | Shipped in #4 | `quitAppAfter`, default off. |
 
 # 2. Rebranding
 
-The shipping name is Twilight. User-facing strings, the bundle display name, and the App Store name say Twilight. They do not say Moonlight, and they do not say that Moonlight endorses the app. The Mac README already says Moonlight has not endorsed Twilight.
+**Status: shipped in #2, with the version number and the Xcode target names left as they are.**
+
+The name on the device is Twilight. User-facing strings do not present this app as Moonlight. The README says the project is a fork and that Moonlight has not endorsed it. The Xcode targets are still Moonlight and Moonlight TV, which is what a developer opens.
 
 ## Bundle id
 
-Use `io.github.neguete10.twilight` for the iOS/iPadOS target. That id is also the Designed for iPad listing on visionOS, because a compatible iPad app is the same binary.
+Both targets use `io.github.neguete10.twilight.ios`. Designed for iPad on visionOS is that same binary. A separate tvOS id was not created.
 
-`io.github.neguete10.twilight.ios` also satisfies Apple's reverse-DNS check. The shorter id is the better default: a later native visionOS build can join the same App Store record without a platform name baked into the id. Pick one before the first App Store Connect record is created. The id cannot be changed after the first upload.
+`DEVELOPMENT_TEAM` `DM46QST4M7` is not set. The team is chosen in Signing & Capabilities when someone runs on a device. Simulator builds set `CODE_SIGNING_ALLOWED` to NO.
 
-tvOS today shares `com.moonlight-stream.Moonlight` with the iOS target, which is how a single App Store record ships both platforms. Keep that shape: the tvOS target uses `io.github.neguete10.twilight` as well. A separate `io.github.neguete10.twilight.tv` record is only worth it if the tvOS app should be installed and sold independently.
-
-Clear `DEVELOPMENT_TEAM` `DM46QST4M7` from every build configuration. That team id is Moonlight's. Twilight signs with its own Apple Developer team. Automatic signing against the upstream team will fail, and a profile from that team must not ship.
-
-`MARKETING_VERSION` is `9.0.2`, which is the moonlight-ios version. The Mac feature release being ported is 7.1.0. The store version should be Twilight's own line (start at 1.0, or track 7.1.x once the feature set matches). Do not submit the fork as version 9.0.2 of Moonlight.
+`MARKETING_VERSION` is still `9.0.2`. Changing it is part of the first App Store Connect upload, not something #2–#6 decided.
 
 ## Preference storage
 
-A new bundle id already gets a new container, so an install of Twilight will not open official Moonlight's database. The on-disk names should still change, so logs, backups, and any future app group do not keep Moonlight's filenames.
-
-Today (`AppDelegate.m`):
-
-- iOS stores Core Data in Documents as `Limelight_iOS.sqlite`.
-- tvOS stores a binary file `Moonlight_tvOS.bin` and copies that file into `NSUserDefaults` under the same string.
-- The model versions are named `Moonlight v1.0` through `Moonlight v1.10`.
-
-Twilight:
-
 - iOS file `Twilight.sqlite`.
-- tvOS file `Twilight_tvOS.bin`, and the same string as the `NSUserDefaults` key.
-- A new model named Twilight, starting at v1. There is no store to migrate: the bundle id is new, and the Moonlight v1.x chain belongs to the other app.
-- The client unique id and the pairing certificate live in this store (`IdManager`, `CryptoManager`). A new file means a new pairing identity, so a host sees Twilight as its own client.
+- tvOS file `Twilight_tvOS.bin`, also the `NSUserDefaults` key.
+- The current model is `Twilight v1.12`, after `Moonlight v1.11`. Lightweight migration keeps an existing Twilight install. A new bundle id does not open official Moonlight's database.
+- The client unique id and the pairing certificate live in this store. A new file means a new pairing identity.
 
-Do not copy the Mac app's `QSettings` identity. Twilight 7.1.0 on Mac still calls `setOrganizationName("Moonlight Game Streaming Project")`, `setOrganizationDomain("moonlight-stream.com")`, and `setApplicationName("Moonlight")`, with the display name set to Twilight. Sharing that domain would make a Mac and an iOS build contend for the same preference files if they ever moved to a shared mechanism. The iOS store names above are the split.
+Settings keys inside the model (`bitrate`, `preferredCodec`, and the rest) kept their names.
 
-Settings keys inside the model (`bitrate`, `preferredCodec`, and the rest) can keep their names. They are not visible across apps.
+## Strings and assets
 
-## Strings and assets that still say Moonlight
+Done:
 
-Phase 2, when code changes are allowed:
+- `CFBundleDisplayName` is Twilight on both plists.
+- Usage strings, including the microphone string on iOS, describe Twilight.
+- The app icon and the launch screen are Twilight's. The launch screen is landscape.
+- The README describes Twilight and points at the Mac client. It does not add a personal name, and it does not add a license section. The license file stays `LICENSE.txt`. The about sheet is where the GPL notice is shown.
+- The old in-settings license screen is gone. HDR has no beta label.
 
-- `CFBundleDisplayName` / `PRODUCT_NAME` on both targets. The tvOS Info.plist hardcodes `Moonlight`. The iOS plist uses `${PRODUCT_NAME}`, and the product is the target name `Moonlight`.
-- Alerts that say Moonlight, including the network-block copy in `DiscoveryManager.m` and the connectivity-test failure in `MainFrameViewController.m`.
-- Usage strings in both Info.plists (`NSLocalNetworkUsageDescription`, both Bluetooth strings). They currently explain why Moonlight wants the permission.
-- The app icon, the launch screen, and the README. The README rewrite should describe Twilight and point at the Mac client. It should not add a personal name, and it should not add a license section. The license file stays `LICENSE.txt`. An in-app about box is the right place for the license notice the GPL asks a GUI program to show.
-- Help links and `CONN_TEST_SERVER` (`ios.conntest.moonlight-stream.org`) call upstream infrastructure. They can stay for the port, with the understanding that the host is someone else's. They are not branding.
+Left as they were on purpose:
+
+- Help links and `CONN_TEST_SERVER` (`ios.conntest.moonlight-stream.org`) still call upstream infrastructure. `APP_STORE.md` tells review what that host is.
+- Copyright headers in source files still name Moonlight Stream. Those are attributions, not the name on the device.
 
 # 3. App Store readiness
 
-This is a checklist for the submission, not a review prediction. Official Moonlight iOS is already a shipping remote-desktop client (`id1000551566`). The fork inherits that review surface and adds a new bundle id, a microphone, and a new name.
+**Status: the binary-side checklist from #4 is in the tree. The Connect record is not.** `APP_STORE.md` is the worksheet for the steps that still need a Mac and an Apple Developer account.
 
 ## Signing
 
-- Apple Developer Program membership under the publisher's own team.
-- New App ID for `io.github.neguete10.twilight`, with Game Controller capability. Add the iOS and tvOS platforms to that record if both targets share the id.
-- Distribution certificate and an App Store provisioning profile. Development signing stays automatic against the same team.
-- Remove `DEVELOPMENT_TEAM = DM46QST4M7` before the first device build that is meant to be Twilight.
-- No `CODE_SIGN_ENTITLEMENTS` file exists today. Add one when a capability needs a signed entitlement, and keep it limited to what the binary uses.
-- Archive the Release configuration. Release is the configuration that defines `ENABLE_APP_STORE_RESTRICTIONS`.
+- The publisher's own team, selected in Xcode. The upstream team id is already removed.
+- App ID `io.github.neguete10.twilight.ios`, with the iOS and tvOS platforms on one record if both ship together.
+- Archive the Release configuration. Release defines `ENABLE_APP_STORE_RESTRICTIONS` on the iOS target and on the tvOS target.
+- No extra entitlements file was added. The low-latency streaming entitlement is for a later native visionOS target, and only if the team is allowed to use it.
 
 ## Entitlements
 
-| Need | Entitlement | When |
+| Need | Entitlement | Where it stands |
 | --- | --- | --- |
-| Find hosts with `NSNetServiceBrowser` on `_nvstream._tcp` | None beyond the Info.plist Bonjour declaration, as long as `NSBonjourServices` lists that type | Already how `MDNSManager` works |
-| Wake-on-LAN directed broadcast, if a build is rejected for raw UDP broadcast | `com.apple.developer.networking.multicast`, requested from Apple | Only if review or the console requires it. Do not add it speculatively |
-| Microphone capture in the foreground | No entitlement. The usage string is the gate | Section 1.5 |
-| Mac hardened-runtime microphone exception `com.apple.security.device.audio-input` | Do not copy it | That key is for the Mac Developer ID build. It is not an iOS entitlement |
-| App Groups, iCloud, push, HomeKit, Health | None | The app does not use them |
+| Find hosts with `NSNetServiceBrowser` on `_nvstream._tcp` | None beyond `NSBonjourServices` | Unchanged |
+| Wake-on-LAN directed broadcast | `com.apple.developer.networking.multicast` | Not added. Add it only if review or the console requires it |
+| Microphone capture in the foreground | No entitlement. The usage string is the gate | Shipped on iOS |
+| Mac hardened-runtime microphone exception | Do not copy it | Not an iOS entitlement |
+| `com.apple.developer.low-latency-streaming` | visionOS only | Not in this binary. See [Vision Pro](#vision-pro) |
 
 ## Privacy strings and manifest
 
-Already present, and due for Twilight wording:
+Present:
 
 - `NSLocalNetworkUsageDescription`
 - `NSBonjourServices` = `_nvstream._tcp`
 - `NSBluetoothAlwaysUsageDescription` and `NSBluetoothPeripheralUsageDescription` (Citrix X1 mouse)
-- `NSAppTransportSecurity` / `NSAllowsArbitraryLoads` = true. The client connects to whatever host the user paired. App Store Connect will ask for the reason. Keep the exception and describe it as user-specified game-streaming hosts.
+- `NSAppTransportSecurity` / `NSAllowsArbitraryLoads` = true, for user-specified hosts
+- `NSMicrophoneUsageDescription` on the iOS target only
+- `PrivacyInfo.xcprivacy` in both bundles. User defaults reason `CA92.1`. System boot time reason `35F9.1` for the SDL2 audio timer. Tracking is off and the collected-data array is empty.
 
-Add before the build that needs them:
-
-- `NSMicrophoneUsageDescription` on the iOS target only, when microphone passthrough lands. State that audio is sent to the user's computer. Absence of this key crashes at the first capture request.
-- A `PrivacyInfo.xcprivacy` in the app bundle. The tree does not have one. `NSUserDefaults` (tvOS writes the whole database into defaults) is a required-reason API and needs a declared reason such as `CA92.1`. Add the manifest before submission, including the statically linked copies of FFmpeg, Opus, and SDL if their SDK snapshots ship manifests.
-
-App Store Connect privacy labels, matching what the binary does:
-
-- Data not collected by the developer, as long as no analytics SDK is added. The pairing certificate and unique id stay on device.
-- Local network: yes, it is used to reach the host.
-- Microphone: declare it when the toggle exists. Audio goes to the user's host, not to a Twilight server.
-- Bluetooth: only if the X1 mouse path stays.
+The Connect privacy answers are written in `APP_STORE.md`. They still have to be entered there.
 
 ## Export compliance
 
-Both Info.plists set `ITSAppUsesNonExemptEncryption` to false. That matches upstream and skips the per-build encryption question. It is a declaration the publisher makes, not a determination this plan can confirm.
-
-What the binary actually uses:
-
-- HTTPS to the host, through the system HTTP stack. Apple treats OS-provided TLS as exempt.
-- The GameStream control and video protection inside moonlight-common-c (AES, via the crypto library that submodule builds).
-
-For a new App Store Connect record, answer the encryption questions to match the plist. If the GameStream AES layer is later classified as non-exempt, the plist flag has to change and the usual annual self-classification (or a CCATS filing) follows. Do not flip the flag as part of rebranding without that classification.
+Both Info.plists set `ITSAppUsesNonExemptEncryption` to false. `APP_STORE.md` says to answer **No** in Connect. The binary uses HTTPS through the system stack and AES inside moonlight-common-c, which is what upstream moonlight-ios ships with this flag. If that AES layer is later classified as non-exempt, the plist and the filing change at that time.
 
 ## Review risks
 
-Keep these. They are already how the Release build tries to pass review:
+These are how the Release build tries to pass review:
 
-- `ENABLE_APP_STORE_RESTRICTIONS` is set only on the iOS target's Release configuration (`project.pbxproj`). `DiscoveryManager` then rejects a manually added IPv4 address that is not RFC 1918, link-local, or the CGN range, which the comment names as Guideline 4.2.7a. `AppListResponse` removes the default Steam entry and keeps a Steam app the user added, which the comment names as Guideline 4.2.7d. Debug builds do not define the macro. Store archives must be Release. Confirm the tvOS target gets the same macro before a tvOS submission; today the flag is on the iOS Release configuration.
-- Remote-desktop rules still apply to a game-streaming client: the host is a computer the user owns, the UI is not a store, and the app does not browse or sell software. Hiding the stock Steam tile is part of that.
-- The name Twilight has to be checked in App Store Connect against existing apps. A confusingly similar name is a metadata rejection. The subtitle and screenshots should describe PC game streaming.
-- Do not use Moonlight's name, icon, or App Store screenshots. Do not imply the Moonlight project ships this app.
-- Microphone: the purpose string has to match the behavior (host passthrough, opt-in, foreground). A string that says "audio quality" or a capture session that starts at launch will be rejected.
-- `NSAllowsArbitraryLoads` needs the review note about user-specified hosts.
-- The connectivity test host `ios.conntest.moonlight-stream.org` is a third-party server the app contacts. Mention it in the review notes.
-- In-app update checks against GitHub must not be ported.
-- `UIRequiredDeviceCapabilities` on the iOS plist is `arm64`. It was `armv7`. Apple Vision Pro does not advertise armv7, so that requirement would keep the Designed for iPad build off the headset. Every device that can run the iOS 15 deployment target is arm64, and the tvOS plist was already `arm64`. iPhone and iPad install eligibility is unchanged.
-- `UIRequiresFullScreen` is true. That is acceptable for a streaming client. Designed for iPad on visionOS still runs fullscreen inside the iPad window.
-- Age rating follows the questionnaire for a client that displays whatever the user's computer sends. The app itself has no store and no account.
-- TestFlight uses the same signed binary and the same license question as the store. It is a test channel, not a different distribution license.
+- `ENABLE_APP_STORE_RESTRICTIONS` is on for Release of both targets. `DiscoveryManager` rejects a manually added IPv4 address that is not RFC 1918, link-local, or the CGN range. `AppListResponse` removes the default Steam entry and keeps a Steam app the user added. Debug builds do not define the macro. Store archives must be Release.
+- The host is a computer the user owns. The UI is not a store.
+- The name Twilight still has to be checked in App Store Connect. Do not use Moonlight's name, icon, or screenshots.
+- The microphone string matches opt-in, foreground, host passthrough. Capture does not start at launch.
+- `NSAllowsArbitraryLoads` and `ios.conntest.moonlight-stream.org` need the review note in `APP_STORE.md`.
+- No in-app update check was ported.
+- `UIRequiredDeviceCapabilities` is `arm64` on iOS and on tvOS.
+- `UIRequiresFullScreen` is true.
+- The app has no store and no account. The age rating follows the questionnaire for a client that displays whatever the user's computer sends.
 
 ## Designed for iPad on visionOS
 
-- In App Store Connect, make the iOS app available on Apple Vision Pro. That is the compatible-iPad path. It does not require an xrOS target.
-- Test the iPhone-disabled, iPad storyboard layout in the visionOS simulator as a Designed for iPad app: host list, settings (including the new toggles), launch, and the stats overlay.
-- Native visionOS (a full space, a native window scene, compositor-timed frames) is a later target. None of the seven features require it.
+- In App Store Connect, make the iOS app available on Apple Vision Pro as Designed for iPad. That does not require an xrOS target. This step is still open. It is in `APP_STORE.md`.
+- The iPad storyboard is what that window loads, including when the idiom is Vision.
+- Native visionOS (a full space, a native window scene, compositor-timed frames) is a later target. None of the features in section 1 require it.
 
 ## Vision Pro
 
-This pass keeps Twilight running as the existing iPad app ("Designed for iPad"). There is no native visionOS target, and the bundle id stays `io.github.neguete10.twilight.ios`.
+This build runs as the existing iPad app. There is no native visionOS target, and the bundle id stays `io.github.neguete10.twilight.ios`.
 
-The iOS Info.plist sets `UIPreferredDefaultInterfaceOrientation` to `UIInterfaceOrientationLandscapeRight`, so the window opens in landscape on Vision Pro. `UISupportedInterfaceOrientations` and `UISupportedInterfaceOrientations~ipad` are still landscape left and landscape right. That preferred key does not change iPhone or iPad rotation. The tvOS plist is unchanged.
+`UIPreferredDefaultInterfaceOrientation` is `UIInterfaceOrientationLandscapeRight`, so the Designed for iPad window opens in landscape. iPhone rotation is landscape-only because `UISupportedInterfaceOrientations` lists only landscape left and landscape right (#6). iPad, which is the binary Vision Pro runs, still lists portrait and both landscapes. The preferred key does not change that iPad mask. The tvOS plist is unchanged.
 
-A native visionOS target comes later. The reference clients are [Neo Moonlight](https://github.com/NeoVectorX/NeoMoonlight) and Moonlight XrOS ([moonlight-ios-vision](https://github.com/RikuKunMS2/moonlight-ios-vision)).
+A native target comes later. The reference clients are [Neo Moonlight](https://github.com/NeoVectorX/NeoMoonlight) and Moonlight XrOS ([moonlight-ios-vision](https://github.com/RikuKunMS2/moonlight-ios-vision)).
 
-A native target that consumes streamed game content can request the visionOS entitlement `com.apple.developer.low-latency-streaming`. The system turns that mode on when it has resources. This Designed for iPad build does not include the entitlement. A later native target should add it only for a team Apple has allowed to use it. Moonlight XrOS tells local device builds to remove the entitlement when the signing team does not have it, or the app will not sign.
+A native target that consumes streamed game content can request `com.apple.developer.low-latency-streaming`. The system turns that mode on when it has resources. This Designed for iPad build does not include the entitlement. A later native target should add it only for a team Apple has allowed to use it. Moonlight XrOS tells local device builds to remove the entitlement when the signing team does not have it, or the app will not sign.
 
 # 4. GPL-3 and the App Store terms
 
@@ -438,6 +347,8 @@ GPL version 3, section 7, is the part of the license that allows additional perm
 
 Other components keep their own licenses. The FFmpeg headers under `libs/FFmpeg` are LGPL 2.1 or later. Opus is the BSD license in `libs/opus`. SDL2 ships its own license. X1Kit is a separate submodule. The section 7 paragraph in `LICENSE.txt` does not relicense those.
 
+The about sheet shows this text. The README does not have a license section.
+
 ## Why this comes up
 
 The Free Software Foundation's longstanding position is that the App Store's usage rules are further restrictions, which the GPL (section 10, and the conveying rules in section 6) does not allow a distributor to add. That is the conflict the VLC App Store removal turned on, and it is why an additional permission exists at all. Upstream Moonlight chose to ship moonlight-ios on the App Store with the exception above. The Mac Twilight 7.1.0 build does not use that path: it is a Developer ID signed, notarized disk image, and the Mac README describes the Mac App Store package flag as optional and unused for that image.
@@ -446,7 +357,7 @@ This fork does not have copyright assignments from the Moonlight contributors. T
 
 ## Options
 
-1. **Keep the exception that is already in `LICENSE.txt`, and keep the source public.** The permission is already granted in the copy this fork received. Using it does not require a new grant. The exception's own condition is that source stays available under the GPL, with or without the extra permission, somewhere that does not carry the store's terms. A public git repository is that channel. Making the repository private would drop the condition the paragraph states. The in-app about box should offer the license, which the GPL's "How to Apply These Terms" asks a GUI program to do. The README does not need a license section.
+1. **Keep the exception that is already in `LICENSE.txt`, and keep the source public.** The permission is already granted in the copy this fork received. Using it does not require a new grant. The exception's own condition is that source stays available under the GPL, with or without the extra permission, somewhere that does not carry the store's terms. A public git repository is that channel. Making the repository private would drop the condition the paragraph states. The about sheet offers the license. The README does not need a license section.
 
 2. **Ask the Moonlight maintainers if a fork is what the paragraph covers.** The text says "you are allowed to distribute the software." It does not name forks, and it does not name Twilight. A written answer from the maintainers is the way to confirm they read it as covering a fork. That ask is optional for as long as the publisher is comfortable relying on the paragraph as written. It is the right ask if a store review, a mirror, or a lawyer wants something the paragraph does not say.
 
@@ -456,17 +367,14 @@ This fork does not have copyright assignments from the Moonlight contributors. T
 
 5. **Ship outside the App Store.** Ad-hoc, enterprise, or a direct sideload never accepts the store's usage rules, so it does not need the exception. It also does not meet the goal of an App Store release. TestFlight is still Apple's distribution and uses the store's signing.
 
-The practical path that matches this repository is option 1: leave the exception in place, keep the git repository public under GPL-3, and put the license notice in the app's about box rather than in the README. Option 2 is the conversation to open with the Moonlight maintainers if that reading needs to be confirmed. Option 3 is the conversation to open only if the goal changes from "ship this GPL fork" to "ship under some other license."
+The practical path that matches this repository is option 1: leave the exception in place, keep the git repository public under GPL-3, and keep the license notice in the about sheet rather than in the README. Option 2 is the conversation to open with the Moonlight maintainers if that reading needs to be confirmed. Option 3 is the conversation to open only if the goal changes from "ship this GPL fork" to "ship under some other license."
 
-# Suggested order of work
+# What is left
 
-Code changes start after this plan. A sensible order, so later settings are not written into the Moonlight store:
+#2 through #6 finished the feature carry-over that could be done in this tree, the rebrand, the Twilight shell, and the landscape-only iPhone app. The work that is still a person's to do, rather than another code pass on this branch:
 
-1. Rebrand the target names, bundle id, team, version, usage strings, and store filenames. Confirm a Release build signs with the new team.
-2. Raise the bitrate ceiling and extend the stats overlay. Both are visible without a special host.
-3. Put AV1 into the Automatic mask, and leave PyroWave out.
-4. Add the adaptive-bitrate toggle and the two HTTPS calls, tested against a Vibepollo host and against stock Sunshine (where the toggle must do nothing).
-5. Wire `setAdaptiveTriggers` to `GCDualSenseAdaptiveTrigger`, and check existing rumble on a DualSense.
-6. Add `LiSendRawControlStreamPacket` to moonlight-common-c, then the microphone toggle, on iOS and iPadOS only.
-7. Leave VRR as the existing fixed display-link lock, and label it that way on the overlay.
-8. Privacy manifest, App Store Connect record, and a Release archive with `ENABLE_APP_STORE_RESTRICTIONS` on every target that will be submitted. The submission worksheet is `APP_STORE.md`.
+1. Choose the signing team and install a device build.
+2. Decide `MARKETING_VERSION` before the first upload.
+3. Create the App Store Connect record from `APP_STORE.md`, including Designed for iPad on Vision Pro, and upload a Release archive.
+4. Exercise microphone passthrough, a DualSense, a real stream, and an iOS 27 launch on hardware.
+5. A native visionOS target, the tvOS shell, the GFE bitrate note, and a present-mode word on the overlay, if those are still wanted after the store record exists.
