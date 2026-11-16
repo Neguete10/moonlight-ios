@@ -12,6 +12,7 @@
 #import "StreamConfiguration.h"
 #import "Utils.h"
 #import "TwilightTheme.h"
+#import "StreamVideoLayout.h"
 #import "Utils.h"
 
 #import <VideoToolbox/VideoToolbox.h>
@@ -454,6 +455,7 @@ BOOL isCustomResolution(CGSize res) {
     self.view.backgroundColor = [TwilightTheme background];
     self.scrollView.backgroundColor = [TwilightTheme background];
     self.view.tintColor = [TwilightTheme accent];
+    self.view.accessibilityIdentifier = @"twilight.settings";
     
     DataManager* dataMan = [[DataManager alloc] init];
     TemporarySettings* currentSettings = [dataMan getSettings];
@@ -468,17 +470,28 @@ BOOL isCustomResolution(CGSize res) {
         _bitrate = bitrateTable[[self getSliderValueForBitrate:storedBitrate]];
     }
 
-    // Get the size of the screen with and without safe area insets
+    // bounds, not frame. On iPhone, window.frame stays in portrait screen
+    // coordinates even when the interface is landscape, so Full and Safe Area
+    // used to request a portrait stream. A landscape-only phone whose bounds
+    // have not rotated yet is swapped inside StreamVideoLayout.
     UIWindow *window = [AppDelegate currentWindow];
     if (window == nil) {
         window = self.view.window;
     }
-    CGRect windowFrame = window != nil ? window.frame : UIScreen.mainScreen.bounds;
+    CGRect interfaceBounds = window != nil ? window.bounds : UIScreen.mainScreen.bounds;
     UIEdgeInsets safeInsets = window != nil ? window.safeAreaInsets : UIEdgeInsetsZero;
     CGFloat screenScale = window != nil ? window.screen.scale : UIScreen.mainScreen.scale;
-    CGFloat safeAreaWidth = (windowFrame.size.width - safeInsets.left - safeInsets.right) * screenScale;
-    CGFloat fullScreenWidth = windowFrame.size.width * screenScale;
-    CGFloat fullScreenHeight = windowFrame.size.height * screenScale;
+    BOOL landscapeOnly = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone;
+    CGSize safePixels = [StreamVideoLayout streamPixelsForSize:interfaceBounds.size
+                                                         insets:safeInsets
+                                                          scale:screenScale
+                                                  landscapeOnly:landscapeOnly
+                                                      fullBleed:NO];
+    CGSize fullPixels = [StreamVideoLayout streamPixelsForSize:interfaceBounds.size
+                                                         insets:safeInsets
+                                                          scale:screenScale
+                                                  landscapeOnly:landscapeOnly
+                                                      fullBleed:YES];
     
     self.resolutionDisplayView.layer.cornerRadius = 10;
     self.resolutionDisplayView.clipsToBounds = YES;
@@ -491,9 +504,12 @@ BOOL isCustomResolution(CGSize res) {
     resolutionTable[1] = CGSizeMake(1280, 720);
     resolutionTable[2] = CGSizeMake(1920, 1080);
     resolutionTable[3] = CGSizeMake(3840, 2160);
-    resolutionTable[4] = CGSizeMake(safeAreaWidth, fullScreenHeight);
-    resolutionTable[5] = CGSizeMake(fullScreenWidth, fullScreenHeight);
-    resolutionTable[6] = CGSizeMake([currentSettings.width integerValue], [currentSettings.height integerValue]); // custom initial value
+    resolutionTable[4] = safePixels;
+    resolutionTable[5] = fullPixels;
+    CGSize stored = [StreamVideoLayout streamSizeForWidth:[currentSettings.width integerValue]
+                                                     height:[currentSettings.height integerValue]
+                                              landscapeOnly:landscapeOnly];
+    resolutionTable[6] = stored; // custom initial value
     
     // Don't populate the custom entry unless we have a custom resolution
     if (!isCustomResolution(resolutionTable[6])) {
@@ -516,8 +532,8 @@ BOOL isCustomResolution(CGSize res) {
 
     NSInteger resolution = 1;
     for (int i = 0; i < RESOLUTION_TABLE_SIZE; i++) {
-        if ((int) resolutionTable[i].height == [currentSettings.height intValue]
-            && (int) resolutionTable[i].width == [currentSettings.width intValue]) {
+        if ((int) resolutionTable[i].height == (int)stored.height
+            && (int) resolutionTable[i].width == (int)stored.width) {
             resolution = i;
             break;
         }

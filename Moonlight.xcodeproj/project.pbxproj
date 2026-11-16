@@ -149,6 +149,14 @@
 		FBD349621A0089F6002D2A60 /* DataManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBD349611A0089F6002D2A60 /* DataManager.m */; };
 		FBDE86E019F7A837001C18A8 /* UIComputerView.m in Sources */ = {isa = PBXBuildFile; fileRef = FBDE86DF19F7A837001C18A8 /* UIComputerView.m */; };
 		FBDE86E619F82297001C18A8 /* UIAppView.m in Sources */ = {isa = PBXBuildFile; fileRef = FBDE86E519F82297001C18A8 /* UIAppView.m */; };
+		A7E1C01DEF96000100AB141D /* StreamVideoLayout.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1C018EF96000100AB1418 /* StreamVideoLayout.m */; };
+		A7E1C020EF96000100AB1420 /* StreamVideoLayout.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1C018EF96000100AB1418 /* StreamVideoLayout.m */; };
+		A7E1C01EEF96000100AB141E /* TwilightOnScreenKeyboard.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1C01AEF96000100AB141A /* TwilightOnScreenKeyboard.m */; };
+		A7E1C021EF96000100AB1421 /* TwilightOnScreenKeyboard.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1C01AEF96000100AB141A /* TwilightOnScreenKeyboard.m */; };
+		A7E1C01FEF96000100AB141F /* TwilightInputLog.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1C01CEF96000100AB141C /* TwilightInputLog.m */; };
+		A7E1C022EF96000100AB1422 /* TwilightInputLog.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1C01CEF96000100AB141C /* TwilightInputLog.m */; };
+		A7E1C024EF96000100AB1424 /* TwilightUnitTests.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1C023EF96000100AB1423 /* TwilightUnitTests.m */; };
+		A7E1C028EF96000100AB1428 /* TwilightUITests.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1C027EF96000100AB1427 /* TwilightUITests.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -179,6 +187,20 @@
 			proxyType = 1;
 			remoteGlobalIDString = FB1A67EE21324EE300507771;
 			remoteInfo = "moonlight-common-tv";
+		};
+		A7E1C00DEF96000100AB140D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FB290CE619B2C406004C83CF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FB290CED19B2C406004C83CF;
+			remoteInfo = Moonlight;
+		};
+		A7E1C00EEF96000100AB140E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FB290CE619B2C406004C83CF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FB290CED19B2C406004C83CF;
+			remoteInfo = Moonlight;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -347,6 +369,16 @@
 		FBDE86DF19F7A837001C18A8 /* UIComputerView.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = UIComputerView.m; sourceTree = "<group>"; };
 		FBDE86E419F82297001C18A8 /* UIAppView.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = UIAppView.h; sourceTree = "<group>"; };
 		FBDE86E519F82297001C18A8 /* UIAppView.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = UIAppView.m; sourceTree = "<group>"; };
+		A7E1C017EF96000100AB1417 /* StreamVideoLayout.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = StreamVideoLayout.h; sourceTree = "<group>"; };
+		A7E1C018EF96000100AB1418 /* StreamVideoLayout.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = StreamVideoLayout.m; sourceTree = "<group>"; };
+		A7E1C019EF96000100AB1419 /* TwilightOnScreenKeyboard.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TwilightOnScreenKeyboard.h; sourceTree = "<group>"; };
+		A7E1C01AEF96000100AB141A /* TwilightOnScreenKeyboard.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TwilightOnScreenKeyboard.m; sourceTree = "<group>"; };
+		A7E1C01BEF96000100AB141B /* TwilightInputLog.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TwilightInputLog.h; sourceTree = "<group>"; };
+		A7E1C01CEF96000100AB141C /* TwilightInputLog.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TwilightInputLog.m; sourceTree = "<group>"; };
+		A7E1C023EF96000100AB1423 /* TwilightUnitTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TwilightUnitTests.m; sourceTree = "<group>"; };
+		A7E1C027EF96000100AB1427 /* TwilightUITests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TwilightUITests.m; sourceTree = "<group>"; };
+		A7E1C003EF96000100AB1403 /* TwilightUnitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TwilightUnitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A7E1C004EF96000100AB1404 /* TwilightUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TwilightUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -386,6 +418,21 @@
 				FB4679011A57048000377732 /* CoreFoundation.framework in Frameworks */,
 				98181BE92791277400E43572 /* libSDL2.a in Frameworks */,
 				98882A062AF60F7000C5A11C /* libavcodec.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+
+		A7E1C007EF96000100AB1407 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A7E1C008EF96000100AB1408 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -430,6 +477,8 @@
 				FB290CF919B2C406004C83CF /* Moonlight */,
 				FB1A67542132419700507771 /* Moonlight TV */,
 				FB290CF019B2C406004C83CF /* Frameworks */,
+				A7E1C00FEF96000100AB140F /* TwilightTests */,
+				A7E1C010EF96000100AB1410 /* TwilightUITests */,
 				FB290CEF19B2C406004C83CF /* Products */,
 			);
 			sourceTree = "<group>";
@@ -439,6 +488,8 @@
 			children = (
 				FB290CEE19B2C406004C83CF /* Moonlight.app */,
 				FB1A67532132419700507771 /* Moonlight TV.app */,
+				A7E1C003EF96000100AB1403 /* TwilightUnitTests.xctest */,
+				A7E1C004EF96000100AB1404 /* TwilightUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -542,6 +593,10 @@
 				FB4678EC1A50C40900377732 /* OnScreenControls.m */,
 				FB1A674B2131E65900507771 /* KeyboardSupport.h */,
 				FB1A674C2131E65900507771 /* KeyboardSupport.m */,
+				A7E1C019EF96000100AB1419 /* TwilightOnScreenKeyboard.h */,
+				A7E1C01AEF96000100AB141A /* TwilightOnScreenKeyboard.m */,
+				A7E1C01BEF96000100AB141B /* TwilightInputLog.h */,
+				A7E1C01CEF96000100AB141C /* TwilightInputLog.m */,
 				9897B6A0221260EF00966419 /* Controller.m */,
 				9897B6A32212610800966419 /* Controller.h */,
 				9827E7A22514366900F25707 /* HapticContext.m */,
@@ -587,6 +642,8 @@
 				FB89461B19F646E200339C8A /* StreamManager.m */,
 				FB89461C19F646E200339C8A /* VideoDecoderRenderer.h */,
 				FB89461D19F646E200339C8A /* VideoDecoderRenderer.m */,
+				A7E1C017EF96000100AB1417 /* StreamVideoLayout.h */,
+				A7E1C018EF96000100AB1418 /* StreamVideoLayout.m */,
 				9803CCAB254F9EAF00EE185E /* ConnectionCallbacks.h */,
 			);
 			path = Stream;
@@ -724,6 +781,23 @@
 			name = Database;
 			sourceTree = "<group>";
 		};
+
+		A7E1C00FEF96000100AB140F /* TwilightTests */ = {
+			isa = PBXGroup;
+			children = (
+				A7E1C023EF96000100AB1423 /* TwilightUnitTests.m */,
+			);
+			path = TwilightTests;
+			sourceTree = "<group>";
+		};
+		A7E1C010EF96000100AB1410 /* TwilightUITests */ = {
+			isa = PBXGroup;
+			children = (
+				A7E1C027EF96000100AB1427 /* TwilightUITests.m */,
+			);
+			path = TwilightUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -771,6 +845,43 @@
 			productReference = FB290CEE19B2C406004C83CF /* Moonlight.app */;
 			productType = "com.apple.product-type.application";
 		};
+
+		A7E1C001EF96000100AB1401 /* TwilightUnitTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A7E1C015EF96000100AB1415 /* Build configuration list for PBXNativeTarget "TwilightUnitTests" */;
+			buildPhases = (
+				A7E1C005EF96000100AB1405 /* Sources */,
+				A7E1C007EF96000100AB1407 /* Frameworks */,
+				A7E1C009EF96000100AB1409 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A7E1C00BEF96000100AB140B /* PBXTargetDependency */,
+			);
+			name = TwilightUnitTests;
+			productName = TwilightUnitTests;
+			productReference = A7E1C003EF96000100AB1403 /* TwilightUnitTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		A7E1C002EF96000100AB1402 /* TwilightUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A7E1C016EF96000100AB1416 /* Build configuration list for PBXNativeTarget "TwilightUITests" */;
+			buildPhases = (
+				A7E1C006EF96000100AB1406 /* Sources */,
+				A7E1C008EF96000100AB1408 /* Frameworks */,
+				A7E1C00AEF96000100AB140A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A7E1C00CEF96000100AB140C /* PBXTargetDependency */,
+			);
+			name = TwilightUITests;
+			productName = TwilightUITests;
+			productReference = A7E1C004EF96000100AB1404 /* TwilightUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -795,6 +906,14 @@
 					FB290CED19B2C406004C83CF = {
 						LastSwiftMigration = 1140;
 						ProvisioningStyle = Automatic;
+					};
+					A7E1C001EF96000100AB1401 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = FB290CED19B2C406004C83CF;
+					};
+					A7E1C002EF96000100AB1402 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = FB290CED19B2C406004C83CF;
 					};
 				};
 			};
@@ -822,6 +941,8 @@
 			targets = (
 				FB290CED19B2C406004C83CF /* Moonlight */,
 				FB1A67522132419700507771 /* Moonlight TV */,
+				A7E1C001EF96000100AB1401 /* TwilightUnitTests */,
+				A7E1C002EF96000100AB1402 /* TwilightUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -871,6 +992,21 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+
+		A7E1C009EF96000100AB1409 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A7E1C00AEF96000100AB140A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
@@ -911,6 +1047,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A7E1C020EF96000100AB1420 /* StreamVideoLayout.m in Sources */,
+				A7E1C021EF96000100AB1421 /* TwilightOnScreenKeyboard.m in Sources */,
+				A7E1C022EF96000100AB1422 /* TwilightInputLog.m in Sources */,
 				9827E7A42514366900F25707 /* HapticContext.m in Sources */,
 				9897B6A62212732C00966419 /* Controller.m in Sources */,
 				9865DC3E21332D660005B9B9 /* MainFrameViewController.m in Sources */,
@@ -968,6 +1107,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A7E1C01DEF96000100AB141D /* StreamVideoLayout.m in Sources */,
+				A7E1C01EEF96000100AB141E /* TwilightOnScreenKeyboard.m in Sources */,
+				A7E1C01FEF96000100AB141F /* TwilightInputLog.m in Sources */,
 				FB290D0719B2C406004C83CF /* Limelight.xcdatamodeld in Sources */,
 				9819CC22254F180F008A7C8E /* AbsoluteTouchHandler.m in Sources */,
 				9819CC14254F107A008A7C8E /* RelativeTouchHandler.m in Sources */,
@@ -1025,6 +1167,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+
+		A7E1C005EF96000100AB1405 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A7E1C024EF96000100AB1424 /* TwilightUnitTests.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A7E1C006EF96000100AB1406 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A7E1C028EF96000100AB1428 /* TwilightUITests.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -1037,6 +1196,17 @@
 			isa = PBXTargetDependency;
 			name = "moonlight-common-tv";
 			targetProxy = FB1A68162132509800507771 /* PBXContainerItemProxy */;
+		};
+
+		A7E1C00BEF96000100AB140B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FB290CED19B2C406004C83CF /* Moonlight */;
+			targetProxy = A7E1C00DEF96000100AB140D /* PBXContainerItemProxy */;
+		};
+		A7E1C00CEF96000100AB140C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FB290CED19B2C406004C83CF /* Moonlight */;
+			targetProxy = A7E1C00EEF96000100AB140E /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -1400,6 +1570,112 @@
 			};
 			name = Release;
 		};
+		A7E1C011EF96000100AB1411 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTING_SEARCH_PATHS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+				    "$(inherited)",
+				    "@executable_path/Frameworks",
+				    "@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.neguete10.twilight.ios.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Moonlight.app/Moonlight";
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				HEADER_SEARCH_PATHS = (
+				    "$(inherited)",
+				    "$(SRCROOT)/Limelight/Stream",
+				    "$(SRCROOT)/Limelight/Input",
+				    "$(SRCROOT)/Limelight/Utility",
+				);
+			};
+			name = Debug;
+		};
+		A7E1C012EF96000100AB1412 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTING_SEARCH_PATHS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+				    "$(inherited)",
+				    "@executable_path/Frameworks",
+				    "@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.neguete10.twilight.ios.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Moonlight.app/Moonlight";
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				HEADER_SEARCH_PATHS = (
+				    "$(inherited)",
+				    "$(SRCROOT)/Limelight/Stream",
+				    "$(SRCROOT)/Limelight/Input",
+				    "$(SRCROOT)/Limelight/Utility",
+				);
+			};
+			name = Release;
+		};
+		A7E1C013EF96000100AB1413 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTING_SEARCH_PATHS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+				    "$(inherited)",
+				    "@executable_path/Frameworks",
+				    "@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.neguete10.twilight.ios.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Moonlight;
+			};
+			name = Debug;
+		};
+		A7E1C014EF96000100AB1414 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTING_SEARCH_PATHS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+				    "$(inherited)",
+				    "@executable_path/Frameworks",
+				    "@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.neguete10.twilight.ios.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Moonlight;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1420,6 +1696,24 @@
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
+		};
+		A7E1C015EF96000100AB1415 /* Build configuration list for PBXNativeTarget "TwilightUnitTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A7E1C011EF96000100AB1411 /* Debug */,
+				A7E1C012EF96000100AB1412 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A7E1C016EF96000100AB1416 /* Build configuration list for PBXNativeTarget "TwilightUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A7E1C013EF96000100AB1413 /* Debug */,
+				A7E1C014EF96000100AB1414 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
 		};
 		FB290D2019B2C406004C83CF /* Build configuration list for PBXNativeTarget "Moonlight" */ = {
 			isa = XCConfigurationList;

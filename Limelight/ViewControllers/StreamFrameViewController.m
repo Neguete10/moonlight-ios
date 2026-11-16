@@ -17,6 +17,8 @@
 #import "HttpManager.h"
 #import "TwilightTheme.h"
 #import "Utils.h"
+#import "TwilightInputLog.h"
+#import <AVFoundation/AVFoundation.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -94,11 +96,13 @@
     [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
     [coordinator animateAlongsideTransition:^(id<UIViewControllerTransitionCoordinatorContext> context) {
         (void)context;
+        [self layoutStreamSurface];
         [self layoutLaunchCard];
         [self layoutHudBar];
         [self layoutEndMenu];
     } completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
         (void)context;
+        [self layoutStreamSurface];
         [self layoutLaunchCard];
         [self layoutHudBar];
         [self layoutEndMenu];
@@ -139,6 +143,49 @@
 #endif
 }
 
+- (BOOL)uiTestStreamFixture {
+#if DEBUG && !TARGET_OS_TV
+    const char *mode = getenv("TWILIGHT_UITEST");
+    if (mode == NULL) {
+        return NO;
+    }
+    NSString *which = [NSString stringWithUTF8String:mode];
+    return [which isEqualToString:@"stream"] || [which isEqualToString:@"keyboard"];
+#else
+    return NO;
+#endif
+}
+
+- (void)loadUITestStream {
+    // No host. The same layout path the live stream uses, with a stand-in
+    // picture layer so tests can see the frame without Sunshine.
+    self.view.backgroundColor = [UIColor blackColor];
+    if (self.streamConfig == nil) {
+        StreamConfiguration *config = [[StreamConfiguration alloc] init];
+        config.appName = @"Desktop";
+        config.host = @"192.0.2.10";
+        config.width = 1920;
+        config.height = 1080;
+        config.frameRate = 60;
+        config.bitRate = 20000;
+        self.streamConfig = config;
+    }
+    _settings = [[[DataManager alloc] init] getSettings];
+    _controllerSupport = [[ControllerSupport alloc] initWithConfig:self.streamConfig delegate:self];
+    _streamView = [[StreamView alloc] initWithFrame:self.view.bounds];
+    _streamView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [_streamView setupStreamView:_controllerSupport interactionDelegate:self config:self.streamConfig];
+    [self.view addSubview:_streamView];
+
+    AVSampleBufferDisplayLayer *picture = [[AVSampleBufferDisplayLayer alloc] init];
+    picture.backgroundColor = [UIColor colorWithRed:0.12 green:0.45 blue:0.85 alpha:1].CGColor;
+    picture.videoGravity = AVLayerVideoGravityResize;
+    [_streamView.layer addSublayer:picture];
+    [self layoutStreamSurface];
+    [_streamView setNeedsLayout];
+    [_streamView layoutIfNeeded];
+}
+
 - (void)installScreenshotStreamChrome {
     self.view.backgroundColor = [TwilightTheme background];
     _hudBar = [[TwilightHudBar alloc] initWithFrame:CGRectMake(0, 0, 320, 44)];
@@ -164,6 +211,11 @@
         }
         return;
     }
+
+    if ([self uiTestStreamFixture]) {
+        [self loadUITestStream];
+        return;
+    }
     
     [UIApplication sharedApplication].idleTimerDisabled = YES;
     
@@ -186,7 +238,10 @@
     _controllerSupport = [[ControllerSupport alloc] initWithConfig:self.streamConfig delegate:self];
     _inactivityTimer = nil;
     
-    _streamView = [[StreamView alloc] initWithFrame:self.view.frame];
+    // bounds, not frame: frame's origin is in the superview and is often
+    // still the storyboard's portrait rect when viewDidLoad runs.
+    _streamView = [[StreamView alloc] initWithFrame:self.view.bounds];
+    _streamView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [_streamView setupStreamView:_controllerSupport interactionDelegate:self config:self.streamConfig];
     
 #if TARGET_OS_TV
@@ -274,7 +329,8 @@
     
     // Only enable scroll and zoom in absolute touch mode
     if (_settings.absoluteTouchMode) {
-        _scrollView = [[UIScrollView alloc] initWithFrame:self.view.frame];
+        _scrollView = [[UIScrollView alloc] initWithFrame:self.view.bounds];
+        _scrollView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 #if !TARGET_OS_TV
         [_scrollView.panGestureRecognizer setMinimumNumberOfTouches:2];
 #endif
@@ -388,8 +444,26 @@
     _hudBar.frame = CGRectMake(x, top, width, 44);
 }
 
+- (void)layoutStreamSurface {
+    CGRect bounds = self.view.bounds;
+    if (bounds.size.width < 1.0 || bounds.size.height < 1.0 || _streamView == nil) {
+        return;
+    }
+    if (_scrollView != nil) {
+        _scrollView.frame = bounds;
+        if (fabs(_scrollView.zoomScale - 1.0) < 0.01) {
+            _streamView.frame = CGRectMake(0, 0, bounds.size.width, bounds.size.height);
+            _scrollView.contentSize = bounds.size;
+        }
+    }
+    else {
+        _streamView.frame = bounds;
+    }
+}
+
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
+    [self layoutStreamSurface];
     [self layoutLaunchCard];
     [self layoutHudBar];
     [self layoutEndMenu];

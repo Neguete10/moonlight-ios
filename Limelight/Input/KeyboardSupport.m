@@ -46,7 +46,6 @@
 
 + (BOOL)sendKeyEvent:(UIKey*)key down:(BOOL)down API_AVAILABLE(ios(13.4)) {
     char modifierFlags = 0;
-    short keyCode = 0;
     
     if (key.modifierFlags & UIKeyModifierShift) {
         modifierFlags |= MODIFIER_SHIFT;
@@ -61,40 +60,61 @@
         modifierFlags |= MODIFIER_META;
     }
     
+    char extended = 0;
+    short keyCode = [self virtualKeyCodeForHIDUsage:key.keyCode extendedModifier:&extended];
+    modifierFlags |= extended;
+    if (keyCode == 0) {
+        NSLog(@"Unhandled HID usage: %lu", (unsigned long)key.keyCode);
+        assert(0);
+        return false;
+    }
+    
+    LiSendKeyboardEvent(0x8000 | keyCode,
+                        down ? KEY_ACTION_DOWN : KEY_ACTION_UP,
+                        modifierFlags);
+    return true;
+}
+
++ (short)virtualKeyCodeForHIDUsage:(NSUInteger)usage extendedModifier:(char *)extendedModifier API_AVAILABLE(ios(13.4)) {
+    if (extendedModifier != NULL) {
+        *extendedModifier = 0;
+    }
+    short keyCode = 0;
+
     // This converts UIKeyboardHIDUsage values to Win32 VK_* values
     // https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
-    if (key.keyCode >= UIKeyboardHIDUsageKeyboardA &&
-        key.keyCode <= UIKeyboardHIDUsageKeyboardZ) {
-        keyCode = (key.keyCode - UIKeyboardHIDUsageKeyboardA) + 0x41;
+    if (usage >= UIKeyboardHIDUsageKeyboardA &&
+        usage <= UIKeyboardHIDUsageKeyboardZ) {
+        keyCode = (usage - UIKeyboardHIDUsageKeyboardA) + 0x41;
     }
-    else if (key.keyCode == UIKeyboardHIDUsageKeyboard0) {
+    else if (usage == UIKeyboardHIDUsageKeyboard0) {
         // This key is at the beginning of the VK_ range but the end
         // of the UIKeyboardHIDUsageKeyboard range.
         keyCode = 0x30;
     }
-    else if (key.keyCode >= UIKeyboardHIDUsageKeyboard1 &&
-             key.keyCode <= UIKeyboardHIDUsageKeyboard9) {
-        keyCode = (key.keyCode - UIKeyboardHIDUsageKeyboard1) + 0x31;
+    else if (usage >= UIKeyboardHIDUsageKeyboard1 &&
+             usage <= UIKeyboardHIDUsageKeyboard9) {
+        keyCode = (usage - UIKeyboardHIDUsageKeyboard1) + 0x31;
     }
-    else if (key.keyCode == UIKeyboardHIDUsageKeypad0) {
+    else if (usage == UIKeyboardHIDUsageKeypad0) {
         // This key is at the beginning of the VK_ range but the end
         // of the UIKeyboardHIDUsageKeypad range.
         keyCode = 0x60;
     }
-    else if (key.keyCode >= UIKeyboardHIDUsageKeypad1 &&
-             key.keyCode <= UIKeyboardHIDUsageKeypad9) {
-        keyCode = (key.keyCode - UIKeyboardHIDUsageKeypad1) + 0x61;
+    else if (usage >= UIKeyboardHIDUsageKeypad1 &&
+             usage <= UIKeyboardHIDUsageKeypad9) {
+        keyCode = (usage - UIKeyboardHIDUsageKeypad1) + 0x61;
     }
-    else if (key.keyCode >= UIKeyboardHIDUsageKeyboardF1 &&
-             key.keyCode <= UIKeyboardHIDUsageKeyboardF12) {
-        keyCode = (key.keyCode - UIKeyboardHIDUsageKeyboardF1) + 0x70;
+    else if (usage >= UIKeyboardHIDUsageKeyboardF1 &&
+             usage <= UIKeyboardHIDUsageKeyboardF12) {
+        keyCode = (usage - UIKeyboardHIDUsageKeyboardF1) + 0x70;
     }
-    else if (key.keyCode >= UIKeyboardHIDUsageKeyboardF13 &&
-             key.keyCode <= UIKeyboardHIDUsageKeyboardF24) {
-        keyCode = (key.keyCode - UIKeyboardHIDUsageKeyboardF13) + 0x7C;
+    else if (usage >= UIKeyboardHIDUsageKeyboardF13 &&
+             usage <= UIKeyboardHIDUsageKeyboardF24) {
+        keyCode = (usage - UIKeyboardHIDUsageKeyboardF13) + 0x7C;
     }
     else {
-        switch (key.keyCode) {
+        switch (usage) {
             case UIKeyboardHIDUsageKeyboardReturnOrEnter:
                 keyCode = 0x0D;
                 break;
@@ -202,7 +222,9 @@
                 break;
             case UIKeyboardHIDUsageKeypadEnter:
                 keyCode = 0x0D;
-                modifierFlags |= MODIFIER_EXTENDED;
+                if (extendedModifier != NULL) {
+                    *extendedModifier = MODIFIER_EXTENDED;
+                }
                 break;
             case UIKeyboardHIDUsageKeypadPeriod:
                 keyCode = 0x6E;
@@ -253,16 +275,11 @@
                 keyCode = 0x1B; // This value corresponds to "Escape", which is missing from most Apple branded iPad keyboards.
                 break;
             default:
-                NSLog(@"Unhandled HID usage: %lu", (unsigned long)key.keyCode);
-                assert(0);
-                return false;
+                return 0;
         }
     }
-    
-    LiSendKeyboardEvent(0x8000 | keyCode,
-                        down ? KEY_ACTION_DOWN : KEY_ACTION_UP,
-                        modifierFlags);
-    return true;
+
+    return keyCode;
 }
 
 + (struct KeyEvent)translateKeyEvent:(unichar)inputChar withModifierFlags:(UIKeyModifierFlags)modifierFlags {
