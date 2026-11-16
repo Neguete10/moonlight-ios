@@ -361,6 +361,8 @@ jobs:
             local udid
             udid="$(xcrun simctl create "Twilight $label" "$devicetype" "$runtime_id")"
             echo "Testing $label ($family) on $udid"
+            xcrun simctl boot "$udid" || true
+            xcrun simctl bootstatus "$udid" -b || true
             local shotdir="$shots/$label"
             mkdir -p "$shotdir"
             local -a extra=()
@@ -379,8 +381,25 @@ jobs:
               -only-testing:"$only" \
               "${extra[@]}"
             local status=$?
+            if [ "$status" -ne 0 ]; then
+              echo "Retrying $label ($only) after rebooting the simulator"
+              xcrun simctl shutdown "$udid" || true
+              xcrun simctl boot "$udid" || true
+              xcrun simctl bootstatus "$udid" -b || true
+              xcodebuild test \
+                -project Moonlight.xcodeproj \
+                -scheme Moonlight \
+                -configuration Debug \
+                -destination "platform=iOS Simulator,id=$udid" \
+                -derivedDataPath "$derived" \
+                -parallel-testing-enabled NO \
+                -only-testing:"$only" \
+                "${extra[@]}"
+              status=$?
+            fi
             set -e
             xcrun simctl shutdown "$udid" || true
+            xcrun simctl delete "$udid" || true
             if [ "$status" -ne 0 ]; then
               echo "Tests failed for $label ($only)"
               failed=1

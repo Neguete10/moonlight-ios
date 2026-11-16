@@ -215,18 +215,8 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
 }
 
 - (void)layoutKeyboardAccessory {
-#if TARGET_OS_TV
-    return;
-#else
-    UIView *accessory = keyInputField.inputAccessoryView;
-    if (accessory == nil) {
-        return;
-    }
-    CGFloat width = [TwilightOnScreenKeyboard accessoryWidthForView:self];
-    if (fabs(accessory.bounds.size.width - width) > 1.0) {
-        accessory.frame = CGRectMake(0, 0, width, 44);
-        [accessory setNeedsLayout];
-    }
+#if !TARGET_OS_TV
+    [keyInputField.inputAccessoryView setNeedsLayout];
 #endif
 }
 

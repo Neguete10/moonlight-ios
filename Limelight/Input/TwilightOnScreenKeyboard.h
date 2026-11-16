@@ -32,7 +32,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// whose bounds are still portrait, so the bar matches the landscape keyboard.
 + (CGFloat)accessoryWidthForView:(UIView *)view;
 
-+ (UIToolbar *)toolbarWithWidth:(CGFloat)width target:(id)target action:(SEL)action;
++ (UIView *)toolbarWithWidth:(CGFloat)width target:(id)target action:(SEL)action;
 
 @end
 

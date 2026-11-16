@@ -455,7 +455,8 @@ BOOL isCustomResolution(CGSize res) {
     self.view.backgroundColor = [TwilightTheme background];
     self.scrollView.backgroundColor = [TwilightTheme background];
     self.view.tintColor = [TwilightTheme accent];
-    self.view.accessibilityIdentifier = @"twilight.settings";
+    // The settings root is a scroll view, which XCUITest does not list.
+    // The navigation controller's view carries twilight.settings instead.
     
     DataManager* dataMan = [[DataManager alloc] init];
     TemporarySettings* currentSettings = [dataMan getSettings];

@@ -45,20 +45,45 @@
 }
 
 + (CGFloat)accessoryWidthForView:(UIView *)view {
-    CGSize windowSize = view.window != nil ? view.window.bounds.size : CGSizeZero;
-    CGSize viewSize = view.bounds.size;
-    CGFloat width = windowSize.width > 1.0 ? windowSize.width : viewSize.width;
-    BOOL phone = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone;
-    // UIWindow.bounds can still be portrait for a frame after a landscape-only
-    // phone is asked to rotate. The landscape keyboard spans the long side.
-    if (phone && windowSize.height > windowSize.width && windowSize.height > 1.0) {
-        width = windowSize.height;
-    }
-    else if (phone && viewSize.height > viewSize.width && viewSize.height > width) {
-        width = viewSize.height;
+    // The system keyboard sizes the accessory to its own width. Start from the
+    // window's current width so the bar is not wider than the keys can be hit.
+    CGFloat width = view.bounds.size.width;
+    if (view.window != nil && view.window.bounds.size.width > width) {
+        width = view.window.bounds.size.width;
     }
     return MAX(width, 320.0);
 }
+
+@end
+
+@interface TwilightKeyboardBar : UIView
+@property (nonatomic, copy) NSArray<UIButton *> *keyButtons;
+@end
+
+@implementation TwilightKeyboardBar
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    NSUInteger count = self.keyButtons.count;
+    if (count == 0 || self.bounds.size.width < 1) {
+        return;
+    }
+    CGFloat gap = 6;
+    CGFloat side = 8;
+    CGFloat available = self.bounds.size.width - side * 2 - gap * (count - 1);
+    CGFloat buttonWidth = MIN(52, MAX(28, floor(available / count)));
+    CGFloat buttonHeight = MIN(32, MAX(24, self.bounds.size.height - 8));
+    CGFloat y = (self.bounds.size.height - buttonHeight) / 2.0;
+    CGFloat x = side;
+    for (UIButton *button in self.keyButtons) {
+        button.frame = CGRectMake(x, y, buttonWidth, buttonHeight);
+        x += buttonWidth + gap;
+    }
+}
+
+@end
+
+@implementation TwilightOnScreenKeyboard
 
 + (UIImage *)imageForKey:(TwilightOnScreenKey *)key {
     UIImage *image = [UIImage imageNamed:key.imageName];
@@ -70,25 +95,23 @@
     return image;
 }
 
-+ (UIBarButtonItem *)buttonForKey:(TwilightOnScreenKey *)key target:(id)target action:(SEL)action {
++ (UIButton *)buttonForKey:(TwilightOnScreenKey *)key target:(id)target action:(SEL)action {
     UIImage *image = [self imageForKey:key];
     UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
     button.accessibilityIdentifier = key.identifier;
     button.accessibilityLabel = key.name;
-    button.translatesAutoresizingMaskIntoConstraints = NO;
-    [button.widthAnchor constraintEqualToConstant:36.0].active = YES;
-    [button.heightAnchor constraintEqualToConstant:32.0].active = YES;
+    button.translatesAutoresizingMaskIntoConstraints = YES;
     if (image != nil) {
         [button setImage:image forState:UIControlStateNormal];
         button.imageView.contentMode = UIViewContentModeScaleAspectFit;
-        button.imageEdgeInsets = UIEdgeInsetsMake(5, 5, 5, 5);
+        button.contentEdgeInsets = UIEdgeInsetsMake(4, 4, 4, 4);
     }
     else {
-        // A missing catalog image used to leave an empty 30pt chip, which
-        // reads as a missing key. The title is the upstream key name.
+        // A missing catalog image used to leave an empty chip, which reads
+        // as a missing key. The title is the upstream key name.
         [button setTitle:key.name forState:UIControlStateNormal];
         [button setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-        button.titleLabel.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightSemibold];
+        button.titleLabel.font = [UIFont systemFontOfSize:12.0 weight:UIFontWeightSemibold];
         button.titleLabel.adjustsFontSizeToFitWidth = YES;
         button.titleLabel.minimumScaleFactor = 0.6;
     }
@@ -101,21 +124,24 @@
     objc_setAssociatedObject(button, "isToggleable", @(key.toggle), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(button, "isOn", @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(button, "keyName", key.name, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    return [[UIBarButtonItem alloc] initWithCustomView:button];
+    return button;
 }
 
-+ (UIToolbar *)toolbarWithWidth:(CGFloat)width target:(id)target action:(SEL)action {
++ (UIView *)toolbarWithWidth:(CGFloat)width target:(id)target action:(SEL)action {
     CGFloat barWidth = MAX(width, 320.0);
-    UIToolbar *toolbar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, barWidth, 44)];
-    toolbar.accessibilityIdentifier = @"twilight.keyboardToolbar";
-    toolbar.insetsLayoutMarginsFromSafeArea = NO;
-    NSMutableArray<UIBarButtonItem *> *items = [NSMutableArray array];
+    TwilightKeyboardBar *bar = [[TwilightKeyboardBar alloc] initWithFrame:CGRectMake(0, 0, barWidth, 44)];
+    bar.accessibilityIdentifier = @"twilight.keyboardToolbar";
+    bar.backgroundColor = [UIColor colorWithWhite:0.12 alpha:1];
+    bar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
     for (TwilightOnScreenKey *key in [self toolbarKeys]) {
-        [items addObject:[self buttonForKey:key target:target action:action]];
+        UIButton *button = [self buttonForKey:key target:target action:action];
+        [bar addSubview:button];
+        [buttons addObject:button];
     }
-    [items addObject:[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil]];
-    [toolbar setItems:items];
-    return toolbar;
+    bar.keyButtons = buttons;
+    [bar setNeedsLayout];
+    return bar;
 }
 
 @end

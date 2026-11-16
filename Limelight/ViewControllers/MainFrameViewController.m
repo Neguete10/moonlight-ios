@@ -1011,6 +1011,8 @@ static NSMutableSet* hostList;
         
     hostScrollView = [[ComputerScrollView alloc] init];
     hostScrollView.accessibilityIdentifier = @"twilight.hosts";
+    hostScrollView.isAccessibilityElement = YES;
+    hostScrollView.accessibilityLabel = @"Hosts";
     hostScrollView.frame = CGRectMake(0, 0, self.view.frame.size.width, self.view.frame.size.height / 2);
     hostScrollView.delaysContentTouches = NO;
     hostScrollView.backgroundColor = [UIColor clearColor];
@@ -2029,6 +2031,7 @@ static NSMutableSet* hostList;
                                                                                                 action:@selector(closeSettingsSheet)];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:settings];
     nav.modalPresentationStyle = UIModalPresentationPageSheet;
+    nav.view.accessibilityIdentifier = @"twilight.settings";
     [TwilightTheme applyToNavigationBar:nav.navigationBar];
     if (@available(iOS 15.0, *)) {
         UISheetPresentationController *sheet = nav.sheetPresentationController;
@@ -2122,6 +2125,7 @@ static NSMutableSet* hostList;
         return;
     }
     UIView *card = [self presentCardTitled:@"Hosts"];
+    card.accessibilityIdentifier = @"twilight.hostsheet";
     _hostSwitcherOpen = YES;
     hostScrollView.backgroundColor = [UIColor clearColor];
     hostScrollView.layer.cornerRadius = 0;
