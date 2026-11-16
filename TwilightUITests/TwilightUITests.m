@@ -144,9 +144,23 @@
     [self saveShot:@"settings"];
 }
 
+- (void)tapIdentifier:(NSString *)identifier {
+    XCUIElement *element = self.app.buttons[identifier];
+    XCTAssertTrue([element waitForExistenceWithTimeout:2], @"Missing %@", identifier);
+    [self assertFrame:element.frame fitsInWindowNamed:identifier];
+    // Custom keyboard buttons are visible but often not "hittable", so a
+    // normal tap records no key. A coordinate tap still hits the button.
+    XCUICoordinate *point = [element coordinateWithNormalizedOffset:CGVectorMake(0.5, 0.5)];
+    [point tap];
+}
+
 - (void)testHostsFitOnScreen {
     XCUIApplication *app = [self launchMode:@"hosts"];
     XCUIElement *hosts = [self waitForIdentifier:@"twilight.hosts" timeout:4];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3];
+    while (hosts.frame.size.width < 8 && [deadline timeIntervalSinceNow] > 0) {
+        [self spinFor:0.2];
+    }
     [self assertFrame:hosts.frame fitsInWindowNamed:@"hosts"];
     XCUIElement *livingRoom = app.staticTexts[@"Living Room"];
     if ([livingRoom waitForExistenceWithTimeout:2]) {
@@ -226,22 +240,22 @@
     }
     [self saveShot:@"keyboard"];
 
-    [app.buttons[@"twilight.key.esc"] tap];
+    [self tapIdentifier:@"twilight.key.esc"];
     [self waitForLogContaining:@"down 27"];
     [self waitForLogContaining:@"up 27"];
 
-    [app.buttons[@"twilight.key.tab"] tap];
+    [self tapIdentifier:@"twilight.key.tab"];
     [self waitForLogContaining:@"down 9 "];
     [self waitForLogContaining:@"up 9 "];
 
-    [app.buttons[@"twilight.key.ctrl"] tap];
+    [self tapIdentifier:@"twilight.key.ctrl"];
     [self waitForLogContaining:@"down 162"];
-    [app.buttons[@"twilight.key.ctrl"] tap];
+    [self tapIdentifier:@"twilight.key.ctrl"];
     [self waitForLogContaining:@"up 162"];
 
-    [app.buttons[@"twilight.key.alt"] tap];
+    [self tapIdentifier:@"twilight.key.alt"];
     [self waitForLogContaining:@"down 164"];
-    [app.buttons[@"twilight.key.win"] tap];
+    [self tapIdentifier:@"twilight.key.win"];
     [self waitForLogContaining:@"down 91"];
 
     XCUIElement *letter = app.keys[@"q"];
@@ -257,7 +271,7 @@
     [letter tap];
     [self waitForLogContaining:[NSString stringWithFormat:@"down %d", letterCode]];
 
-    [app.buttons[@"twilight.key.done"] tap];
+    [self tapIdentifier:@"twilight.key.done"];
     NSPredicate *gone = [NSPredicate predicateWithFormat:@"exists == 0"];
     XCTNSPredicateExpectation *dismissed = [[XCTNSPredicateExpectation alloc] initWithPredicate:gone object:keyboard];
     XCTAssertEqual([XCTWaiter waitForExpectations:@[dismissed] timeout:3], XCTWaiterResultCompleted);

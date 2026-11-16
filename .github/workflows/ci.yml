@@ -448,6 +448,7 @@ jobs:
     needs: [build, build-tvos, visionos, ios27-launch, test]
     if: ${{ always() && needs.build.result == 'success' && needs.build-tvos.result == 'success' }}
     runs-on: macos-26-intel
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v7

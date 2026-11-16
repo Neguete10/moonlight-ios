@@ -136,7 +136,7 @@
         [buttons addObject:button];
     }
     bar.keyButtons = buttons;
-    [bar setNeedsLayout];
+    [bar layoutIfNeeded];
     return bar;
 }
 

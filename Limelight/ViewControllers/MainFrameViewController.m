@@ -2127,7 +2127,12 @@ static NSMutableSet* hostList;
         return;
     }
     UIView *card = [self presentCardTitled:@"Hosts"];
-    card.accessibilityIdentifier = @"twilight.hostsheet";
+    // The host list is a scroll view. On a phone it lives in this card, and
+    // XCUITest does not see a scroll view reliably. The card is the surface
+    // the test measures.
+    card.accessibilityIdentifier = @"twilight.hosts";
+    hostScrollView.accessibilityIdentifier = @"twilight.hostrows";
+    hostScrollView.isAccessibilityElement = NO;
     _hostSwitcherOpen = YES;
     hostScrollView.backgroundColor = [UIColor clearColor];
     hostScrollView.layer.cornerRadius = 0;
@@ -2135,6 +2140,9 @@ static NSMutableSet* hostList;
     [card addSubview:hostScrollView];
     [self updateHosts];
     [self layoutTwilightChrome];
+    if (hostScrollView.bounds.size.width < 8) {
+        hostScrollView.frame = CGRectMake(12, 56, MAX(200, card.bounds.size.width - 24), MAX(120, card.bounds.size.height - 72));
+    }
 }
 
 - (UIButton *)managerButton:(NSString *)title symbol:(NSString *)symbol danger:(BOOL)danger action:(TwilightAction)action {
