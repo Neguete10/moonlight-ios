@@ -10,6 +10,33 @@
 @implementation TwilightOnScreenKey
 @end
 
+@interface TwilightKeyboardBar : UIView
+@property (nonatomic, copy) NSArray<UIButton *> *keyButtons;
+@end
+
+@implementation TwilightKeyboardBar
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    NSUInteger count = self.keyButtons.count;
+    if (count == 0 || self.bounds.size.width < 1) {
+        return;
+    }
+    CGFloat gap = 6;
+    CGFloat side = 8;
+    CGFloat available = self.bounds.size.width - side * 2 - gap * (count - 1);
+    CGFloat buttonWidth = MIN(52, MAX(28, floor(available / count)));
+    CGFloat buttonHeight = MIN(32, MAX(24, self.bounds.size.height - 8));
+    CGFloat y = (self.bounds.size.height - buttonHeight) / 2.0;
+    CGFloat x = side;
+    for (UIButton *button in self.keyButtons) {
+        button.frame = CGRectMake(x, y, buttonWidth, buttonHeight);
+        x += buttonWidth + gap;
+    }
+}
+
+@end
+
 @implementation TwilightOnScreenKeyboard
 
 + (TwilightOnScreenKey *)keyNamed:(NSString *)name
@@ -53,37 +80,6 @@
     }
     return MAX(width, 320.0);
 }
-
-@end
-
-@interface TwilightKeyboardBar : UIView
-@property (nonatomic, copy) NSArray<UIButton *> *keyButtons;
-@end
-
-@implementation TwilightKeyboardBar
-
-- (void)layoutSubviews {
-    [super layoutSubviews];
-    NSUInteger count = self.keyButtons.count;
-    if (count == 0 || self.bounds.size.width < 1) {
-        return;
-    }
-    CGFloat gap = 6;
-    CGFloat side = 8;
-    CGFloat available = self.bounds.size.width - side * 2 - gap * (count - 1);
-    CGFloat buttonWidth = MIN(52, MAX(28, floor(available / count)));
-    CGFloat buttonHeight = MIN(32, MAX(24, self.bounds.size.height - 8));
-    CGFloat y = (self.bounds.size.height - buttonHeight) / 2.0;
-    CGFloat x = side;
-    for (UIButton *button in self.keyButtons) {
-        button.frame = CGRectMake(x, y, buttonWidth, buttonHeight);
-        x += buttonWidth + gap;
-    }
-}
-
-@end
-
-@implementation TwilightOnScreenKeyboard
 
 + (UIImage *)imageForKey:(TwilightOnScreenKey *)key {
     UIImage *image = [UIImage imageNamed:key.imageName];
