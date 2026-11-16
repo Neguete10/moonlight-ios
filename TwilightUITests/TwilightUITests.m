@@ -17,6 +17,8 @@
 - (void)setUp {
     [super setUp];
     self.continueAfterFailure = NO;
+    // Each test dies on its own if a tap or the keyboard never settles.
+    self.executionTimeAllowance = 40;
 }
 
 - (void)tearDown {
@@ -83,9 +85,9 @@
 }
 
 - (void)assertVideoSettled {
-    XCUIElement *stream = [self waitForIdentifier:@"twilight.stream" timeout:8];
-    XCUIElement *video = [self waitForIdentifier:@"twilight.video" timeout:8];
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:8];
+    XCUIElement *stream = [self waitForIdentifier:@"twilight.stream" timeout:4];
+    XCUIElement *video = [self waitForIdentifier:@"twilight.video" timeout:4];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:4];
     CGRect streamFrame = CGRectZero;
     CGRect videoFrame = CGRectZero;
     BOOL settled = NO;
@@ -104,7 +106,7 @@
             settled = YES;
             break;
         }
-        [self spinFor:0.35];
+        [self spinFor:0.2];
     }
     XCTAssertTrue(settled, @"video %@ in stream %@", NSStringFromCGRect(videoFrame), NSStringFromCGRect(streamFrame));
     CGRect window = [self windowFrame];
@@ -123,12 +125,12 @@
         [[XCUIDevice sharedDevice] setOrientation:UIDeviceOrientationPortrait];
     }
     XCUIApplication *app = [self launchMode:@"library"];
-    XCUIElement *shell = [self waitForIdentifier:@"twilight.shell" timeout:8];
-    XCUIElement *apps = [self waitForIdentifier:@"twilight.apps" timeout:8];
+    XCUIElement *shell = [self waitForIdentifier:@"twilight.shell" timeout:4];
+    XCUIElement *apps = [self waitForIdentifier:@"twilight.apps" timeout:4];
     [self assertFrame:shell.frame fitsInWindowNamed:@"shell"];
     [self assertFrame:apps.frame fitsInWindowNamed:@"apps"];
     XCUIElement *desktop = app.staticTexts[@"Desktop"];
-    XCTAssertTrue([desktop waitForExistenceWithTimeout:5], @"App grid did not show the fixture desktop");
+    XCTAssertTrue([desktop waitForExistenceWithTimeout:3], @"App grid did not show the fixture desktop");
     [self assertFrame:desktop.frame fitsInWindowNamed:@"Desktop"];
     if ([self expectLandscape]) {
         CGRect window = [self windowFrame];
@@ -137,17 +139,17 @@
     [self saveShot:@"library"];
 
     [app.buttons[@"twilight.settingsButton"] tap];
-    XCUIElement *settings = [self waitForIdentifier:@"twilight.settings" timeout:6];
+    XCUIElement *settings = [self waitForIdentifier:@"twilight.settings" timeout:4];
     [self assertFrame:settings.frame fitsInWindowNamed:@"settings"];
     [self saveShot:@"settings"];
 }
 
 - (void)testHostsFitOnScreen {
     XCUIApplication *app = [self launchMode:@"hosts"];
-    XCUIElement *hosts = [self waitForIdentifier:@"twilight.hosts" timeout:8];
+    XCUIElement *hosts = [self waitForIdentifier:@"twilight.hosts" timeout:4];
     [self assertFrame:hosts.frame fitsInWindowNamed:@"hosts"];
     XCUIElement *livingRoom = app.staticTexts[@"Living Room"];
-    if ([livingRoom waitForExistenceWithTimeout:3]) {
+    if ([livingRoom waitForExistenceWithTimeout:2]) {
         [self assertFrame:livingRoom.frame fitsInWindowNamed:@"Living Room"];
     }
     [self saveShot:@"hosts"];
@@ -180,7 +182,7 @@
     XCUIElement *log = [self keyLog];
     NSPredicate *predicate = [NSPredicate predicateWithFormat:@"label CONTAINS %@", needle];
     XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc] initWithPredicate:predicate object:log];
-    XCTWaiterResult result = [XCTWaiter waitForExpectations:@[expectation] timeout:5];
+    XCTWaiterResult result = [XCTWaiter waitForExpectations:@[expectation] timeout:3];
     XCTAssertEqual(result, XCTWaiterResultCompleted, @"key log missing \"%@\": %@", needle, log.label);
 }
 
@@ -198,10 +200,10 @@
     }
 
     XCUIElement *keyboard = app.keyboards.firstMatch;
-    BOOL appeared = [keyboard waitForExistenceWithTimeout:6];
+    BOOL appeared = [keyboard waitForExistenceWithTimeout:4];
     if (!appeared) {
         [stream tapWithNumberOfTaps:1 numberOfTouches:3];
-        appeared = [keyboard waitForExistenceWithTimeout:6];
+        appeared = [keyboard waitForExistenceWithTimeout:4];
     }
     XCTAssertTrue(appeared, @"Software keyboard did not appear. Disable ConnectHardwareKeyboard on the simulator. %@", app.debugDescription);
     [self assertFrame:keyboard.frame fitsInWindowNamed:@"keyboard"];
@@ -219,7 +221,7 @@
     ];
     for (NSString *identifier in identifiers) {
         XCUIElement *button = app.buttons[identifier];
-        XCTAssertTrue([button waitForExistenceWithTimeout:3], @"Missing %@", identifier);
+        XCTAssertTrue([button waitForExistenceWithTimeout:2], @"Missing %@", identifier);
         [self assertFrame:button.frame fitsInWindowNamed:identifier];
     }
     [self saveShot:@"keyboard"];
@@ -258,7 +260,7 @@
     [app.buttons[@"twilight.key.done"] tap];
     NSPredicate *gone = [NSPredicate predicateWithFormat:@"exists == 0"];
     XCTNSPredicateExpectation *dismissed = [[XCTNSPredicateExpectation alloc] initWithPredicate:gone object:keyboard];
-    XCTAssertEqual([XCTWaiter waitForExpectations:@[dismissed] timeout:4], XCTWaiterResultCompleted);
+    XCTAssertEqual([XCTWaiter waitForExpectations:@[dismissed] timeout:3], XCTWaiterResultCompleted);
     [self saveShot:@"keyboard-dismissed"];
 }
 

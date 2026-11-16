@@ -274,6 +274,10 @@ jobs:
     needs: [build, build-tvos, visionos, ios27-launch]
     if: ${{ always() && needs.build.result == 'success' && needs.build-tvos.result == 'success' }}
     runs-on: macos-26-intel
+    # The simulator step used to call `simctl bootstatus -b` with no deadline.
+    # That call never returns when the device fails to boot, so the job sat
+    # for hours. Thirty minutes is enough for one iPhone and one iPad pass.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -349,11 +353,35 @@ jobs:
           mkdir -p "$shots"
           failed=0
 
+          # Kill the whole process group. simctl bootstatus and xcodebuild
+          # otherwise wait forever when a simulator never finishes booting.
+          run_with_timeout() {
+            local seconds="$1"
+            shift
+            python3 - "$seconds" "$@" << 'PY'
+          import os, signal, subprocess, sys
+          seconds = int(sys.argv[1])
+          cmd = sys.argv[2:]
+          proc = subprocess.Popen(cmd, start_new_session=True)
+          try:
+              code = proc.wait(timeout=seconds)
+          except subprocess.TimeoutExpired:
+              print("Timed out after %ss: %s" % (seconds, " ".join(cmd)), flush=True)
+              try:
+                  os.killpg(proc.pid, signal.SIGKILL)
+              except ProcessLookupError:
+                  pass
+              proc.wait()
+              sys.exit(124)
+          sys.exit(code)
+          PY
+          }
+
           run_one() {
             local label="$1"
             local devicetype="$2"
             local family="$3"
-            local only="$4"
+            shift 3
             if [ -z "$devicetype" ]; then
               echo "Skipping $label: no simulator device type"
               return 0
@@ -361,8 +389,6 @@ jobs:
             local udid
             udid="$(xcrun simctl create "Twilight $label" "$devicetype" "$runtime_id")"
             echo "Testing $label ($family) on $udid"
-            xcrun simctl boot "$udid" || true
-            xcrun simctl bootstatus "$udid" -b || true
             local shotdir="$shots/$label"
             mkdir -p "$shotdir"
             local -a extra=()
@@ -370,49 +396,40 @@ jobs:
             if [ "$family" = "iphone" ]; then
               extra+=(TEST_RUNNER_TWILIGHT_EXPECT_LANDSCAPE=1)
             fi
+            # xcodebuild boots the simulator itself. A separate bootstatus
+            # wait deadlocks with that boot and never returns.
             set +e
-            xcodebuild test \
+            run_with_timeout 720 xcodebuild test \
               -project Moonlight.xcodeproj \
               -scheme Moonlight \
               -configuration Debug \
               -destination "platform=iOS Simulator,id=$udid" \
               -derivedDataPath "$derived" \
               -parallel-testing-enabled NO \
-              -only-testing:"$only" \
+              -maximum-concurrent-test-simulator-destinations 1 \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance 30 \
+              -maximum-test-execution-time-allowance 60 \
+              "$@" \
               "${extra[@]}"
             local status=$?
-            if [ "$status" -ne 0 ]; then
-              echo "Retrying $label ($only) after rebooting the simulator"
-              xcrun simctl shutdown "$udid" || true
-              xcrun simctl boot "$udid" || true
-              xcrun simctl bootstatus "$udid" -b || true
-              xcodebuild test \
-                -project Moonlight.xcodeproj \
-                -scheme Moonlight \
-                -configuration Debug \
-                -destination "platform=iOS Simulator,id=$udid" \
-                -derivedDataPath "$derived" \
-                -parallel-testing-enabled NO \
-                -only-testing:"$only" \
-                "${extra[@]}"
-              status=$?
-            fi
             set -e
             xcrun simctl shutdown "$udid" || true
             xcrun simctl delete "$udid" || true
             if [ "$status" -ne 0 ]; then
-              echo "Tests failed for $label ($only)"
+              echo "Tests failed for $label (exit $status)"
               failed=1
             fi
           }
 
-          run_one "iphone-pro" "$(cat /tmp/twilight-test-iphone)" iphone TwilightUnitTests
-          run_one "iphone-pro" "$(cat /tmp/twilight-test-iphone)" iphone TwilightUITests
-          if [ -s /tmp/twilight-test-large ]; then
-            run_one "iphone-large" "$(cat /tmp/twilight-test-large)" iphone TwilightUITests
-          fi
+          # One iPhone pass runs the unit tests and the UI tests together so
+          # the 30 minute job cap is not spent compiling the same app twice.
+          # The large phone uses the same landscape layout; iPad is the second size.
+          run_one "iphone-pro" "$(cat /tmp/twilight-test-iphone)" iphone \
+            -only-testing:TwilightUnitTests -only-testing:TwilightUITests
           if [ -s /tmp/twilight-test-ipad ]; then
-            run_one "ipad" "$(cat /tmp/twilight-test-ipad)" ipad TwilightUITests
+            run_one "ipad" "$(cat /tmp/twilight-test-ipad)" ipad \
+              -only-testing:TwilightUITests
           else
             echo "No iPad simulator device type is installed, so the iPad UI tests were not run."
           fi
@@ -528,7 +545,14 @@ jobs:
             local udid
             udid="$(xcrun simctl create "$name" "$type" "$runtime_id")"
             xcrun simctl boot "$udid"
-            xcrun simctl bootstatus "$udid" -b
+            python3 - "$udid" << 'PY'
+          import subprocess, sys
+          udid = sys.argv[1]
+          try:
+              subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], check=True, timeout=90)
+          except subprocess.TimeoutExpired:
+              sys.exit("simctl bootstatus did not finish within 90s for %s" % udid)
+          PY
             printf '%s' "$udid" > /tmp/twilight-booted-udid
           }
 

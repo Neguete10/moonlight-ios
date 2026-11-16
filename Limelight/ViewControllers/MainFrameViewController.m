@@ -1100,7 +1100,9 @@ static NSMutableSet* hostList;
 
 -(void)beginForegroundRefresh
 {
-    if ([self screenshotFixtureActive]) {
+    if ([self screenshotFixtureActive] || getenv("TWILIGHT_UITEST") != NULL) {
+        // Discovery polling never goes idle. XCUITest then waits forever
+        // before the first tap, which is how a simulator job ran for hours.
         return;
     }
     if (!_background) {
