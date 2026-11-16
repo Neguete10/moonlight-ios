@@ -4,6 +4,7 @@
 //
 
 #import "TwilightOnScreenKeyboard.h"
+#if !TARGET_OS_TV
 #import <objc/runtime.h>
 
 @implementation TwilightOnScreenKey
@@ -118,3 +119,4 @@
 }
 
 @end
+#endif

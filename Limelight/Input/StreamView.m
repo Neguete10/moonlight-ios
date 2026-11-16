@@ -15,7 +15,9 @@
 #import "AbsoluteTouchHandler.h"
 #import "KeyboardInputField.h"
 #import "StreamVideoLayout.h"
+#if !TARGET_OS_TV
 #import "TwilightOnScreenKeyboard.h"
+#endif
 #import "TwilightInputLog.h"
 #import "Utils.h"
 #import <AVFoundation/AVFoundation.h>
@@ -213,6 +215,9 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
 }
 
 - (void)layoutKeyboardAccessory {
+#if TARGET_OS_TV
+    return;
+#else
     UIView *accessory = keyInputField.inputAccessoryView;
     if (accessory == nil) {
         return;
@@ -222,6 +227,7 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
         accessory.frame = CGRectMake(0, 0, width, 44);
         [accessory setNeedsLayout];
     }
+#endif
 }
 
 - (void)startInteractionTimer {
