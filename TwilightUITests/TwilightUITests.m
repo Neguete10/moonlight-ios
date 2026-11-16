@@ -147,10 +147,13 @@
 - (void)tapIdentifier:(NSString *)identifier {
     XCUIElement *element = self.app.buttons[identifier];
     XCTAssertTrue([element waitForExistenceWithTimeout:2], @"Missing %@", identifier);
-    [self assertFrame:element.frame fitsInWindowNamed:identifier];
-    // Custom keyboard buttons are visible but often not "hittable", so a
-    // normal tap records no key. A coordinate tap still hits the button.
-    XCUICoordinate *point = [element coordinateWithNormalizedOffset:CGVectorMake(0.5, 0.5)];
+    CGRect frame = element.frame;
+    [self assertFrame:frame fitsInWindowNamed:identifier];
+    // The accessory button is drawn by the keyboard. Tapping the element
+    // itself is reported as not hittable and drops the key. A point in the
+    // app window, at the button's center, reaches it.
+    XCUICoordinate *origin = [self.app.windows.firstMatch coordinateWithNormalizedOffset:CGVectorMake(0, 0)];
+    XCUICoordinate *point = [origin coordinateWithOffset:CGVectorMake(CGRectGetMidX(frame), CGRectGetMidY(frame))];
     [point tap];
 }
 
@@ -162,9 +165,9 @@
         [self spinFor:0.2];
     }
     [self assertFrame:hosts.frame fitsInWindowNamed:@"hosts"];
-    XCUIElement *livingRoom = app.staticTexts[@"Living Room"];
-    if ([livingRoom waitForExistenceWithTimeout:2]) {
-        [self assertFrame:livingRoom.frame fitsInWindowNamed:@"Living Room"];
+    XCUIElementQuery *rooms = [app.staticTexts matchingPredicate:[NSPredicate predicateWithFormat:@"label == %@", @"Living Room"]];
+    if (rooms.firstMatch.exists) {
+        [self assertFrame:rooms.firstMatch.frame fitsInWindowNamed:@"Living Room"];
     }
     [self saveShot:@"hosts"];
 }
