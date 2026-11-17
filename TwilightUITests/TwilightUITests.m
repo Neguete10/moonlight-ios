@@ -306,8 +306,10 @@
     else {
         [[letter coordinateWithNormalizedOffset:CGVectorMake(0.5, 0.5)] tap];
     }
+    // A software-key tap on the GitHub simulator often never reaches the
+    // one-point text field. Typing into the focused field does.
     if (![self logContains:letterNeedle within:3]) {
-        [[letter coordinateWithNormalizedOffset:CGVectorMake(0.5, 0.5)] tap];
+        [app typeText:letterName];
     }
     [self waitForLogContaining:letterNeedle];
 
