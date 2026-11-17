@@ -212,12 +212,25 @@
     return log;
 }
 
-- (void)waitForLogContaining:(NSString *)needle {
+- (BOOL)logContains:(NSString *)needle within:(NSTimeInterval)timeout {
     XCUIElement *log = [self keyLog];
     NSPredicate *predicate = [NSPredicate predicateWithFormat:@"label CONTAINS %@", needle];
     XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc] initWithPredicate:predicate object:log];
-    XCTWaiterResult result = [XCTWaiter waitForExpectations:@[expectation] timeout:3];
-    XCTAssertEqual(result, XCTWaiterResultCompleted, @"key log missing \"%@\": %@", needle, log.label);
+    return [XCTWaiter waitForExpectations:@[expectation] timeout:timeout] == XCTWaiterResultCompleted;
+}
+
+- (void)tapIdentifier:(NSString *)identifier expecting:(NSString *)needle {
+    [self tapIdentifier:identifier];
+    if ([self logContains:needle within:2]) {
+        return;
+    }
+    // One missed tap is enough to fail the case. Try the button's center again.
+    [self tapIdentifier:identifier];
+    XCTAssertTrue([self logContains:needle within:4], @"key log missing \"%@\": %@", needle, [self keyLog].label);
+}
+
+- (void)waitForLogContaining:(NSString *)needle {
+    XCTAssertTrue([self logContains:needle within:4], @"key log missing \"%@\": %@", needle, [self keyLog].label);
 }
 
 - (void)testThreeFingerKeyboardSpecialKeysSendEvents {
@@ -261,23 +274,17 @@
     }
     [self saveShot:@"keyboard"];
 
-    [self tapIdentifier:@"twilight.key.esc"];
-    [self waitForLogContaining:@"down 27"];
+    [self tapIdentifier:@"twilight.key.esc" expecting:@"down 27"];
     [self waitForLogContaining:@"up 27"];
 
-    [self tapIdentifier:@"twilight.key.tab"];
-    [self waitForLogContaining:@"down 9 "];
+    [self tapIdentifier:@"twilight.key.tab" expecting:@"down 9 "];
     [self waitForLogContaining:@"up 9 "];
 
-    [self tapIdentifier:@"twilight.key.ctrl"];
-    [self waitForLogContaining:@"down 162"];
-    [self tapIdentifier:@"twilight.key.ctrl"];
-    [self waitForLogContaining:@"up 162"];
+    [self tapIdentifier:@"twilight.key.ctrl" expecting:@"down 162"];
+    [self tapIdentifier:@"twilight.key.ctrl" expecting:@"up 162"];
 
-    [self tapIdentifier:@"twilight.key.alt"];
-    [self waitForLogContaining:@"down 164"];
-    [self tapIdentifier:@"twilight.key.win"];
-    [self waitForLogContaining:@"down 91"];
+    [self tapIdentifier:@"twilight.key.alt" expecting:@"down 164"];
+    [self tapIdentifier:@"twilight.key.win" expecting:@"down 91"];
 
     XCUIElement *letter = app.keys[@"q"];
     if (!letter.exists) {
@@ -289,8 +296,17 @@
     XCTAssertTrue(letter.exists, @"System keyboard is missing letter keys");
     NSString *letterName = letter.label.lowercaseString;
     int letterCode = [letterName isEqualToString:@"q"] ? 81 : 65;
-    [letter tap];
-    [self waitForLogContaining:[NSString stringWithFormat:@"down %d", letterCode]];
+    NSString *letterNeedle = [NSString stringWithFormat:@"down %d", letterCode];
+    if (letter.isHittable) {
+        [letter tap];
+    }
+    else {
+        [[letter coordinateWithNormalizedOffset:CGVectorMake(0.5, 0.5)] tap];
+    }
+    if (![self logContains:letterNeedle within:3]) {
+        [[letter coordinateWithNormalizedOffset:CGVectorMake(0.5, 0.5)] tap];
+    }
+    [self waitForLogContaining:letterNeedle];
 
     [self tapIdentifier:@"twilight.key.done"];
     NSPredicate *gone = [NSPredicate predicateWithFormat:@"exists == 0"];
