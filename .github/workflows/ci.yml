@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    branches:
+      - master
   pull_request:
     branches:
       - master
@@ -274,10 +276,10 @@ jobs:
     needs: [build, build-tvos, visionos, ios27-launch]
     if: ${{ always() && needs.build.result == 'success' && needs.build-tvos.result == 'success' }}
     runs-on: macos-26-intel
-    # The simulator step used to call `simctl bootstatus -b` with no deadline.
-    # That call never returns when the device fails to boot, so the job sat
-    # for hours. Thirty minutes is enough for one iPhone and one iPad pass.
-    timeout-minutes: 30
+    # simctl bootstatus used to wait forever. A cold xcodebuild plus one
+    # iPhone pass and one iPad pass needs most of this window; the per-command
+    # cap below kills a simulator that never boots.
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -399,7 +401,7 @@ jobs:
             # xcodebuild boots the simulator itself. A separate bootstatus
             # wait deadlocks with that boot and never returns.
             set +e
-            run_with_timeout 720 xcodebuild test \
+            run_with_timeout 1200 xcodebuild test \
               -project Moonlight.xcodeproj \
               -scheme Moonlight \
               -configuration Debug \
