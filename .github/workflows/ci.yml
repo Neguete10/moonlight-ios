@@ -522,14 +522,31 @@ jobs:
       - name: Download iOS platform
         run: |
           set -euo pipefail
-          for attempt in 1 2 3; do
-            if xcodebuild -downloadPlatform iOS; then
+          for attempt in 1 2 3 4; do
+            xcrun simctl list devices >/dev/null 2>&1 || true
+            set +e
+            python3 - << 'PY'
+          import subprocess, sys
+          try:
+              code = subprocess.run(["xcodebuild", "-downloadPlatform", "iOS"], timeout=480).returncode
+          except subprocess.TimeoutExpired:
+              print("iOS platform download exceeded 8 minutes", flush=True)
+              sys.exit(1)
+          sys.exit(code)
+          PY
+            status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+            if xcodebuild -showsdks 2>/dev/null | grep -q iphonesimulator; then
+              echo "iOS simulator SDK is already installed"
               exit 0
             fi
             echo "iOS platform download attempt ${attempt} failed"
             sleep $((attempt * 20))
           done
-          echo "iOS platform download failed after 3 attempts"
+          echo "iOS platform download failed after 4 attempts"
           exit 1
 
       - name: Capture before and after screenshots
