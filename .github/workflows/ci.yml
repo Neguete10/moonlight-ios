@@ -279,7 +279,7 @@ jobs:
     # simctl bootstatus used to wait forever. A cold xcodebuild plus one
     # iPhone pass and one iPad pass needs most of this window; the per-command
     # cap below kills a simulator that never boots.
-    timeout-minutes: 45
+    timeout-minutes: 50
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -409,7 +409,7 @@ jobs:
             # xcodebuild boots the simulator itself. A separate bootstatus
             # wait deadlocks with that boot and never returns.
             set +e
-            run_with_timeout 900 xcodebuild test \
+            run_with_timeout 1200 xcodebuild test \
               -project Moonlight.xcodeproj \
               -scheme Moonlight \
               -configuration Debug \
@@ -417,28 +417,13 @@ jobs:
               -derivedDataPath "$derived" \
               -parallel-testing-enabled NO \
               -maximum-concurrent-test-simulator-destinations 1 \
+              -retry-tests-on-failure \
+              -test-iterations 2 \
               -test-timeouts-enabled YES \
               -default-test-execution-time-allowance 60 \
               -maximum-test-execution-time-allowance 90 \
               "$@"
             local status=$?
-            if [ "$status" -ne 0 ]; then
-              echo "Retrying $label after shutting down every simulator"
-              xcrun simctl shutdown all || true
-              run_with_timeout 900 xcodebuild test \
-                -project Moonlight.xcodeproj \
-                -scheme Moonlight \
-                -configuration Debug \
-                -destination "platform=iOS Simulator,id=$udid" \
-                -derivedDataPath "$derived" \
-                -parallel-testing-enabled NO \
-                -maximum-concurrent-test-simulator-destinations 1 \
-                -test-timeouts-enabled YES \
-                -default-test-execution-time-allowance 60 \
-                -maximum-test-execution-time-allowance 90 \
-                "$@"
-              status=$?
-            fi
             set -e
             xcrun simctl shutdown all || true
             xcrun simctl delete "$udid" || true
