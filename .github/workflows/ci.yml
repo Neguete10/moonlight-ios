@@ -559,9 +559,9 @@ jobs:
           import subprocess, sys
           udid = sys.argv[1]
           try:
-              subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], check=True, timeout=90)
+              subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], check=True, timeout=180)
           except subprocess.TimeoutExpired:
-              sys.exit("simctl bootstatus did not finish within 90s for %s" % udid)
+              sys.exit("simctl bootstatus did not finish within 180s for %s" % udid)
           PY
             printf '%s' "$udid" > /tmp/twilight-booted-udid
           }
