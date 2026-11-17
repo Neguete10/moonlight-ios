@@ -279,7 +279,7 @@ jobs:
     # simctl bootstatus used to wait forever. A cold xcodebuild plus one
     # iPhone pass and one iPad pass needs most of this window; the per-command
     # cap below kills a simulator that never boots.
-    timeout-minutes: 50
+    timeout-minutes: 70
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -480,6 +480,19 @@ jobs:
               -only-testing:TwilightUITests/TwilightUITests/testAppLaunchesAndMainFlowsFit \
               -only-testing:TwilightUITests/TwilightUITests/testHostsFitOnScreen \
               -only-testing:TwilightUITests/TwilightUITests/testStreamVideoFromPortraitAndBothLandscapes
+            if [ -f "$shots/ipad/xcodebuild.log" ] && grep -q "Timed out while loading Accessibility" "$shots/ipad/xcodebuild.log"; then
+              echo "iPad accessibility service did not load; retrying after a quiet shutdown"
+              failed=0
+              if ! grep -q "All tests passed for iphone-pro" "$shots/iphone-pro/xcodebuild.log"; then
+                failed=1
+              fi
+              xcrun simctl shutdown all || true
+              sleep 20
+              run_one "ipad" "$(cat /tmp/twilight-test-ipad)" ipad \
+                -only-testing:TwilightUITests/TwilightUITests/testAppLaunchesAndMainFlowsFit \
+                -only-testing:TwilightUITests/TwilightUITests/testHostsFitOnScreen \
+                -only-testing:TwilightUITests/TwilightUITests/testStreamVideoFromPortraitAndBothLandscapes
+            fi
           else
             echo "No iPad simulator device type is installed, so the iPad UI tests were not run."
           fi
