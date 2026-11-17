@@ -123,10 +123,13 @@
 }
 
 - (void)testAppLaunchesAndMainFlowsFit {
+    // Rotate after launch. Setting portrait before launch on a landscape-only
+    // phone leaves the simulator unable to start the app.
+    XCUIApplication *app = [self launchMode:@"library"];
     if ([self expectLandscape]) {
         [[XCUIDevice sharedDevice] setOrientation:UIDeviceOrientationPortrait];
+        [self spinFor:0.4];
     }
-    XCUIApplication *app = [self launchMode:@"library"];
     XCUIElement *shell = [self waitForIdentifier:@"twilight.shell" timeout:4];
     XCUIElement *apps = [self waitForIdentifier:@"twilight.apps" timeout:4];
     [self assertFrame:shell.frame fitsInWindowNamed:@"shell"];
@@ -190,8 +193,8 @@
 }
 
 - (void)testStreamVideoFromPortraitAndBothLandscapes {
-    [[XCUIDevice sharedDevice] setOrientation:UIDeviceOrientationPortrait];
     [self launchMode:@"stream"];
+    [[XCUIDevice sharedDevice] setOrientation:UIDeviceOrientationPortrait];
     [self assertVideoSettled];
     [self saveShot:@"stream-from-portrait"];
 

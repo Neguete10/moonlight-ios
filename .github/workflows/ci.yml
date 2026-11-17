@@ -406,8 +406,17 @@ jobs:
             local pref_dir="$HOME/Library/Developer/CoreSimulator/Devices/$udid/data/Library/Preferences"
             mkdir -p "$pref_dir"
             defaults write "$pref_dir/com.apple.keyboard.preferences" DidShowContinuousPathIntroduction -bool true
-            # xcodebuild boots the simulator itself. A separate bootstatus
-            # wait deadlocks with that boot and never returns.
+            # Boot with a deadline so the first UI launch is not waiting on
+            # data migration. An unbounded bootstatus call is what hung CI.
+            xcrun simctl boot "$udid" || true
+            python3 - "$udid" << 'PY'
+          import subprocess, sys
+          udid = sys.argv[1]
+          try:
+              subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], timeout=120)
+          except subprocess.TimeoutExpired:
+              print("bootstatus still going after 120s; xcodebuild will finish it", flush=True)
+          PY
             set +e
             run_with_timeout 1200 xcodebuild test \
               -project Moonlight.xcodeproj \
