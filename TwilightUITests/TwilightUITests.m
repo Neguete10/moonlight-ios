@@ -298,18 +298,10 @@
     NSString *letterName = letter.label.lowercaseString;
     int letterCode = [letterName isEqualToString:@"q"] ? 81 : 65;
     NSString *letterNeedle = [NSString stringWithFormat:@"down %d", letterCode];
-    if (letter.isHittable) {
-        [letter tap];
-    }
-    else {
-        [[letter coordinateWithNormalizedOffset:CGVectorMake(0.5, 0.5)] tap];
-    }
-    // A software-key tap on the GitHub simulator often never reaches the
+    // The software Q key is on screen, but a tap often never reaches the
     // one-point text field. Typing into the focused field does.
-    if (![self logContains:letterNeedle within:3]) {
-        [app typeText:letterName];
-    }
-    [self waitForLogContaining:letterNeedle];
+    [app typeText:letterName];
+    XCTAssertTrue([self logContains:letterNeedle within:8], @"key log missing \"%@\": %@", letterNeedle, [self keyLog].label);
 
     [self tapIdentifier:@"twilight.key.done"];
     NSPredicate *gone = [NSPredicate predicateWithFormat:@"exists == 0"];
