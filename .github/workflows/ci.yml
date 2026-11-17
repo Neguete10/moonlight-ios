@@ -588,28 +588,23 @@ jobs:
           boot_device() {
             local name="$1"
             local type="$2"
-            local udid attempt
-            for attempt in 1 2; do
-              udid="$(xcrun simctl create "$name $attempt" "$type" "$runtime_id")"
-              xcrun simctl boot "$udid" || true
-              if python3 - "$udid" << 'PY'
-          import subprocess, sys
+            local udid
+            udid="$(xcrun simctl create "$name" "$type" "$runtime_id")"
+            xcrun simctl boot "$udid" || true
+            # bootstatus -b waits on SpringBoard and often never returns on
+            # this runner. The device is usable once simctl lists it as Booted.
+            python3 - "$udid" << 'PY'
+          import subprocess, sys, time
           udid = sys.argv[1]
-          try:
-              subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], check=True, timeout=240)
-          except subprocess.TimeoutExpired:
-              sys.exit(1)
+          for _ in range(36):
+              listed = subprocess.run(["xcrun", "simctl", "list", "devices"], capture_output=True, text=True).stdout
+              for line in listed.splitlines():
+                  if udid in line and "(Booted)" in line:
+                      sys.exit(0)
+              time.sleep(5)
+          sys.exit("simulator %s was not Booted after 3 minutes" % udid)
           PY
-              then
-                printf '%s' "$udid" > /tmp/twilight-booted-udid
-                return 0
-              fi
-              echo "Boot attempt ${attempt} for $name did not finish; trying a new simulator"
-              xcrun simctl shutdown "$udid" || true
-              xcrun simctl delete "$udid" || true
-            done
-            echo "Could not boot $name"
-            exit 1
+            printf '%s' "$udid" > /tmp/twilight-booted-udid
           }
 
           install_app() {
