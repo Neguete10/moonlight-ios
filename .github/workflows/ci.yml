@@ -438,7 +438,7 @@ jobs:
               print("bootstatus still going after 120s; xcodebuild will finish it", flush=True)
           PY
             set +e
-            run_with_timeout 1200 xcodebuild test \
+            run_with_timeout 1500 xcodebuild test \
               -project Moonlight.xcodeproj \
               -scheme Moonlight \
               -configuration Debug \
