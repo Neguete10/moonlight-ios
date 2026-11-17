@@ -409,7 +409,7 @@ jobs:
             # xcodebuild boots the simulator itself. A separate bootstatus
             # wait deadlocks with that boot and never returns.
             set +e
-            run_with_timeout 1200 xcodebuild test \
+            run_with_timeout 900 xcodebuild test \
               -project Moonlight.xcodeproj \
               -scheme Moonlight \
               -configuration Debug \
@@ -422,8 +422,25 @@ jobs:
               -maximum-test-execution-time-allowance 90 \
               "$@"
             local status=$?
+            if [ "$status" -ne 0 ]; then
+              echo "Retrying $label after shutting down every simulator"
+              xcrun simctl shutdown all || true
+              run_with_timeout 900 xcodebuild test \
+                -project Moonlight.xcodeproj \
+                -scheme Moonlight \
+                -configuration Debug \
+                -destination "platform=iOS Simulator,id=$udid" \
+                -derivedDataPath "$derived" \
+                -parallel-testing-enabled NO \
+                -maximum-concurrent-test-simulator-destinations 1 \
+                -test-timeouts-enabled YES \
+                -default-test-execution-time-allowance 60 \
+                -maximum-test-execution-time-allowance 90 \
+                "$@"
+              status=$?
+            fi
             set -e
-            xcrun simctl shutdown "$udid" || true
+            xcrun simctl shutdown all || true
             xcrun simctl delete "$udid" || true
             if [ "$status" -ne 0 ]; then
               echo "Tests failed for $label (exit $status)"
