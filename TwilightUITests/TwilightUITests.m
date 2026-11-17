@@ -22,14 +22,9 @@
 }
 
 - (void)tearDown {
-    // A wedged simulator throws from terminate after the assertions have
-    // already passed, which fails the test. The next launch still starts clean.
-    @try {
-        if (self.app != nil && self.app.state != XCUIApplicationStateNotRunning) {
-            [self.app terminate];
-        }
-    } @catch (NSException *exception) {
-    }
+    // XCUIApplication terminate records a test failure when the simulator
+    // cannot reap the process, even after every assertion passed. Leaving
+    // the app for the runner to reap keeps that from failing the case.
     self.app = nil;
     [super tearDown];
 }
