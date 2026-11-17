@@ -137,7 +137,7 @@
         return NO;
     }
     NSString *which = [NSString stringWithUTF8String:mode];
-    return [which isEqualToString:@"stream"] || [which isEqualToString:@"returnstream"];
+    return [which isEqualToString:@"stream"] || [which isEqualToString:@"returnstream"] || [which isEqualToString:@"video"];
 #else
     return NO;
 #endif
@@ -203,7 +203,12 @@
 
     if ([self screenshotStreamFixture]) {
         const char *mode = getenv("TWILIGHT_SCREENSHOT");
-        if (mode != NULL && [[NSString stringWithUTF8String:mode] isEqualToString:@"stream"]) {
+        NSString *which = mode != NULL ? [NSString stringWithUTF8String:mode] : @"";
+        if ([which isEqualToString:@"video"]) {
+            // Bare picture, without the End stream sheet.
+            [self loadUITestStream];
+        }
+        else if ([which isEqualToString:@"stream"]) {
             [self installScreenshotStreamChrome];
         }
         else {

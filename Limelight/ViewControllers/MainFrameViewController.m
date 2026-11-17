@@ -2673,7 +2673,7 @@ static NSMutableSet* hostList;
         [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
         [self presentViewController:alert animated:NO completion:nil];
     }
-    else if ([which isEqualToString:@"stream"] || [which isEqualToString:@"returnstream"]) {
+    else if ([which isEqualToString:@"stream"] || [which isEqualToString:@"returnstream"] || [which isEqualToString:@"video"]) {
         StreamConfiguration *config = [[StreamConfiguration alloc] init];
         config.appName = @"Desktop";
         config.host = @"192.0.2.10";

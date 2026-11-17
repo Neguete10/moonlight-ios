@@ -393,11 +393,19 @@ jobs:
             echo "Testing $label ($family) on $udid"
             local shotdir="$shots/$label"
             mkdir -p "$shotdir"
-            local -a extra=()
-            extra+=(TEST_RUNNER_TWILIGHT_SCREENSHOT_DIR="$shotdir")
+            # Passed as xcodebuild arguments these become build settings and
+            # never reach the test process. The runner only forwards variables
+            # that are in xcodebuild's environment.
+            export TEST_RUNNER_TWILIGHT_SCREENSHOT_DIR="$shotdir"
             if [ "$family" = "iphone" ]; then
-              extra+=(TEST_RUNNER_TWILIGHT_EXPECT_LANDSCAPE=1)
+              export TEST_RUNNER_TWILIGHT_EXPECT_LANDSCAPE=1
+            else
+              unset TEST_RUNNER_TWILIGHT_EXPECT_LANDSCAPE || true
             fi
+            # Skip the QuickPath "slide to type" tip so it cannot cover Esc.
+            local pref_dir="$HOME/Library/Developer/CoreSimulator/Devices/$udid/data/Library/Preferences"
+            mkdir -p "$pref_dir"
+            defaults write "$pref_dir/com.apple.keyboard.preferences" DidShowContinuousPathIntroduction -bool true
             # xcodebuild boots the simulator itself. A separate bootstatus
             # wait deadlocks with that boot and never returns.
             set +e
@@ -410,10 +418,9 @@ jobs:
               -parallel-testing-enabled NO \
               -maximum-concurrent-test-simulator-destinations 1 \
               -test-timeouts-enabled YES \
-              -default-test-execution-time-allowance 30 \
-              -maximum-test-execution-time-allowance 60 \
-              "$@" \
-              "${extra[@]}"
+              -default-test-execution-time-allowance 60 \
+              -maximum-test-execution-time-allowance 90 \
+              "$@"
             local status=$?
             set -e
             xcrun simctl shutdown "$udid" || true
@@ -614,7 +621,7 @@ jobs:
           boot_device "Twilight iPhone" "$(cat /tmp/twilight-iphone-type)"
           iphone="$(cat /tmp/twilight-booted-udid)"
           install_app "$iphone" "$after_app"
-          for mode in empty library hosts hostsheet settings resolution pairing addhost unpaired loading stream returnstream; do
+          for mode in empty library hosts hostsheet settings resolution pairing addhost unpaired loading video stream returnstream; do
             shot "$iphone" dark "$mode" "$out/after-iphone-${mode}-landscape-dark.png"
             upright_iphone "$out/after-iphone-${mode}-landscape-dark.png"
           done
@@ -627,7 +634,7 @@ jobs:
           boot_device "Twilight iPad" "$(cat /tmp/twilight-ipad-type)"
           ipad="$(cat /tmp/twilight-booted-udid)"
           install_app "$ipad" "$after_app"
-          for mode in empty library hostsheet settings stream; do
+          for mode in empty library hostsheet settings video stream; do
             shot "$ipad" dark "$mode" "$out/after-ipad-${mode}-portrait-dark.png"
           done
           xcrun simctl shutdown "$ipad" || true

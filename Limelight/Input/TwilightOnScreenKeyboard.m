@@ -16,19 +16,39 @@
 
 @implementation TwilightKeyboardBar
 
+- (UIEdgeInsets)keySafeInsets {
+    UIEdgeInsets insets = self.safeAreaInsets;
+    if (self.window != nil) {
+        UIEdgeInsets windowInsets = self.window.safeAreaInsets;
+        insets.left = MAX(insets.left, windowInsets.left);
+        insets.right = MAX(insets.right, windowInsets.right);
+    }
+    return insets;
+}
+
 - (void)layoutSubviews {
     [super layoutSubviews];
     NSUInteger count = self.keyButtons.count;
     if (count == 0 || self.bounds.size.width < 1) {
         return;
     }
+    // Landscape iPhone puts the notch in the left or right inset. A button
+    // that starts at x=8 sits under that inset, so Done's center is around
+    // x=34 and the tap never reaches the control.
+    UIEdgeInsets safe = [self keySafeInsets];
+    CGFloat left = MAX(8.0, safe.left + 4.0);
+    CGFloat right = MAX(8.0, safe.right + 4.0);
     CGFloat gap = 6;
-    CGFloat side = 8;
-    CGFloat available = self.bounds.size.width - side * 2 - gap * (count - 1);
+    CGFloat available = self.bounds.size.width - left - right - gap * (count - 1);
+    if (available < count * 28.0) {
+        left = 8;
+        right = 8;
+        available = self.bounds.size.width - left - right - gap * (count - 1);
+    }
     CGFloat buttonWidth = MIN(52, MAX(28, floor(available / count)));
     CGFloat buttonHeight = MIN(32, MAX(24, self.bounds.size.height - 8));
     CGFloat y = (self.bounds.size.height - buttonHeight) / 2.0;
-    CGFloat x = side;
+    CGFloat x = left;
     for (UIButton *button in self.keyButtons) {
         button.frame = CGRectMake(x, y, buttonWidth, buttonHeight);
         x += buttonWidth + gap;

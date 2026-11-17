@@ -544,10 +544,16 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
     // Get the keyCode parameter and convert to short for key press event
     short keyCode = [objc_getAssociatedObject(sender, "keyCode") shortValue];
     NSString *keyName = objc_getAssociatedObject(sender, "keyName");
-    // Close keyboard if done button clicked
-    if (!keyCode) {
-        [keyInputField resignFirstResponder];
+    // Done is key code 0. Resign the field and end editing on the stream
+    // view so a landscape iPhone actually drops the keyboard.
+    if (keyCode == 0) {
         isInputingText = false;
+        BOOL resigned = [keyInputField resignFirstResponder];
+        if (!resigned || [keyInputField isFirstResponder]) {
+            [self endEditing:YES];
+            [keyInputField resignFirstResponder];
+        }
+        return;
     }
     else {
         // Send key press event using keyCode parameter, toggle if necessary

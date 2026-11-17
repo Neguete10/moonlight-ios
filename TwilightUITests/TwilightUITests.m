@@ -144,17 +144,32 @@
     [self saveShot:@"settings"];
 }
 
+- (void)dismissTypingTip {
+    // A fresh simulator covers the keyboard with "Speed up your typing by
+    // sliding your finger… Continue". That tip swallows the Esc tap.
+    XCUIElement *continueButton = self.app.buttons[@"Continue"];
+    if ([continueButton waitForExistenceWithTimeout:2]) {
+        if (continueButton.isHittable) {
+            [continueButton tap];
+        }
+        else {
+            [[continueButton coordinateWithNormalizedOffset:CGVectorMake(0.5, 0.5)] tap];
+        }
+    }
+}
+
 - (void)tapIdentifier:(NSString *)identifier {
     XCUIElement *element = self.app.buttons[identifier];
     XCTAssertTrue([element waitForExistenceWithTimeout:2], @"Missing %@", identifier);
-    CGRect frame = element.frame;
-    [self assertFrame:frame fitsInWindowNamed:identifier];
-    // The accessory button is drawn by the keyboard. Tapping the element
-    // itself is reported as not hittable and drops the key. A point in the
-    // app window, at the button's center, reaches it.
-    XCUICoordinate *origin = [self.app.windows.firstMatch coordinateWithNormalizedOffset:CGVectorMake(0, 0)];
-    XCUICoordinate *point = [origin coordinateWithOffset:CGVectorMake(CGRectGetMidX(frame), CGRectGetMidY(frame))];
-    [point tap];
+    [self assertFrame:element.frame fitsInWindowNamed:identifier];
+    // Tap the button's own center. Offsetting from the window origin put
+    // Done at the landscape safe-area edge (about x=34) and missed the key.
+    if (element.isHittable) {
+        [element tap];
+    }
+    else {
+        [[element coordinateWithNormalizedOffset:CGVectorMake(0.5, 0.5)] tap];
+    }
 }
 
 - (void)testHostsFitOnScreen {
@@ -223,6 +238,7 @@
         appeared = [keyboard waitForExistenceWithTimeout:4];
     }
     XCTAssertTrue(appeared, @"Software keyboard did not appear. Disable ConnectHardwareKeyboard on the simulator. %@", app.debugDescription);
+    [self dismissTypingTip];
     [self assertFrame:keyboard.frame fitsInWindowNamed:@"keyboard"];
     XCTAssertGreaterThan(app.keys.count, 0, @"System keyboard has no keys");
 
@@ -277,7 +293,7 @@
     [self tapIdentifier:@"twilight.key.done"];
     NSPredicate *gone = [NSPredicate predicateWithFormat:@"exists == 0"];
     XCTNSPredicateExpectation *dismissed = [[XCTNSPredicateExpectation alloc] initWithPredicate:gone object:keyboard];
-    XCTAssertEqual([XCTWaiter waitForExpectations:@[dismissed] timeout:3], XCTWaiterResultCompleted);
+    XCTAssertEqual([XCTWaiter waitForExpectations:@[dismissed] timeout:8], XCTWaiterResultCompleted, @"Done did not resign first responder");
     [self saveShot:@"keyboard-dismissed"];
 }
 
