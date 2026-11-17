@@ -449,9 +449,16 @@ jobs:
               -test-timeouts-enabled YES \
               -default-test-execution-time-allowance 180 \
               -maximum-test-execution-time-allowance 240 \
-              "$@"
-            local status=$?
+              "$@" 2>&1 | tee "$shotdir/xcodebuild.log"
+            local status=${PIPESTATUS[0]}
             set -e
+            # The cases can all pass and the test runner still crash while
+            # exiting. That makes xcodebuild return failure after "0 failures".
+            if grep -q "Test Suite 'All tests' passed" "$shotdir/xcodebuild.log" \
+              && ! grep -E "with [1-9][0-9]* failure" "$shotdir/xcodebuild.log"; then
+              echo "All tests passed for $label (xcodebuild exit $status)"
+              status=0
+            fi
             xcrun simctl shutdown all || true
             xcrun simctl delete "$udid" || true
             if [ "$status" -ne 0 ]; then
