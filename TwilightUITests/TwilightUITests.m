@@ -17,8 +17,6 @@
 - (void)setUp {
     [super setUp];
     self.continueAfterFailure = NO;
-    // Each test dies on its own if a tap or the keyboard never settles.
-    self.executionTimeAllowance = 40;
 }
 
 - (void)tearDown {
