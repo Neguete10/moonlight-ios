@@ -289,16 +289,18 @@ jobs:
       - name: Download iOS platform
         run: |
           set -euo pipefail
-          # xcodebuild -downloadPlatform can sit forever. Cap each try so the
-          # simulator tests still have time to run inside the job limit.
-          for attempt in 1 2; do
+          # The download talks to CoreSimulator. Right after a cancelled job
+          # that service answers "Unable to connect", then recovers. A hung
+          # download is still capped so the tests can start.
+          for attempt in 1 2 3 4; do
+            xcrun simctl list devices >/dev/null 2>&1 || true
             set +e
             python3 - << 'PY'
           import subprocess, sys
           try:
-              code = subprocess.run(["xcodebuild", "-downloadPlatform", "iOS"], timeout=360).returncode
+              code = subprocess.run(["xcodebuild", "-downloadPlatform", "iOS"], timeout=480).returncode
           except subprocess.TimeoutExpired:
-              print("iOS platform download exceeded 6 minutes", flush=True)
+              print("iOS platform download exceeded 8 minutes", flush=True)
               sys.exit(1)
           sys.exit(code)
           PY
@@ -307,10 +309,14 @@ jobs:
             if [ "$status" -eq 0 ]; then
               exit 0
             fi
+            if xcodebuild -showsdks 2>/dev/null | grep -q iphonesimulator; then
+              echo "iOS simulator SDK is already installed"
+              exit 0
+            fi
             echo "iOS platform download attempt ${attempt} failed"
-            sleep 15
+            sleep $((attempt * 20))
           done
-          echo "iOS platform download failed after 2 attempts"
+          echo "iOS platform download failed after 4 attempts"
           exit 1
 
       - name: Run unit and UI tests
