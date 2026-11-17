@@ -486,7 +486,7 @@ jobs:
     needs: [build, build-tvos, visionos, ios27-launch, test]
     if: ${{ always() && needs.build.result == 'success' && needs.build-tvos.result == 'success' }}
     runs-on: macos-26-intel
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -581,18 +581,28 @@ jobs:
           boot_device() {
             local name="$1"
             local type="$2"
-            local udid
-            udid="$(xcrun simctl create "$name" "$type" "$runtime_id")"
-            xcrun simctl boot "$udid"
-            python3 - "$udid" << 'PY'
+            local udid attempt
+            for attempt in 1 2; do
+              udid="$(xcrun simctl create "$name $attempt" "$type" "$runtime_id")"
+              xcrun simctl boot "$udid" || true
+              if python3 - "$udid" << 'PY'
           import subprocess, sys
           udid = sys.argv[1]
           try:
-              subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], check=True, timeout=180)
+              subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], check=True, timeout=240)
           except subprocess.TimeoutExpired:
-              sys.exit("simctl bootstatus did not finish within 180s for %s" % udid)
+              sys.exit(1)
           PY
-            printf '%s' "$udid" > /tmp/twilight-booted-udid
+              then
+                printf '%s' "$udid" > /tmp/twilight-booted-udid
+                return 0
+              fi
+              echo "Boot attempt ${attempt} for $name did not finish; trying a new simulator"
+              xcrun simctl shutdown "$udid" || true
+              xcrun simctl delete "$udid" || true
+            done
+            echo "Could not boot $name"
+            exit 1
           }
 
           install_app() {
