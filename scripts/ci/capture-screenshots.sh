@@ -96,8 +96,17 @@ boot_device() {
 install_app() {
   local udid="$1"
   local app="$2"
-  run_deadline 20 xcrun simctl terminate "$udid" io.github.neguete10.twilight.ios || true
-  run_deadline 60 xcrun simctl install "$udid" "$app"
+  local attempt
+  for attempt in 1 2; do
+    echo "Installing on $udid (attempt $attempt) at $(date -u +%H:%M:%S)"
+    if run_deadline 180 xcrun simctl install "$udid" "$app"; then
+      return 0
+    fi
+    echo "simctl install did not finish; waiting for SpringBoard"
+    run_deadline 120 xcrun simctl bootstatus "$udid" -b || true
+  done
+  echo "simctl install failed on $udid"
+  return 1
 }
 
 shot() {
@@ -105,15 +114,15 @@ shot() {
   local appearance="$2"
   local mode="$3"
   local file="$4"
-  run_deadline 20 xcrun simctl ui "$udid" appearance "$appearance" || true
-  run_deadline 20 xcrun simctl terminate "$udid" io.github.neguete10.twilight.ios || true
+  run_deadline 30 xcrun simctl ui "$udid" appearance "$appearance" || true
+  run_deadline 30 xcrun simctl terminate "$udid" io.github.neguete10.twilight.ios || true
   if [ -n "$mode" ]; then
-    SIMCTL_CHILD_TWILIGHT_SCREENSHOT="$mode" run_deadline 30 xcrun simctl launch "$udid" io.github.neguete10.twilight.ios
+    SIMCTL_CHILD_TWILIGHT_SCREENSHOT="$mode" run_deadline 90 xcrun simctl launch "$udid" io.github.neguete10.twilight.ios
   else
-    run_deadline 30 xcrun simctl launch "$udid" io.github.neguete10.twilight.ios
+    run_deadline 90 xcrun simctl launch "$udid" io.github.neguete10.twilight.ios
   fi
   sleep 4
-  run_deadline 30 xcrun simctl io "$udid" screenshot "$file"
+  run_deadline 45 xcrun simctl io "$udid" screenshot "$file"
   echo "Wrote $file"
 }
 

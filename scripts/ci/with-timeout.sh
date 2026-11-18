@@ -22,7 +22,10 @@ except subprocess.TimeoutExpired:
         os.killpg(proc.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
-    proc.wait()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        print("process did not exit after kill: %s" % " ".join(cmd), file=sys.stderr, flush=True)
     sys.exit(124)
 sys.exit(code)
 PY
@@ -47,7 +50,7 @@ import sys
 import time
 
 udid = sys.argv[1]
-for i in range(24):
+for i in range(36):
     proc = subprocess.Popen(
         ["xcrun", "simctl", "list", "devices"],
         start_new_session=True,
@@ -56,14 +59,17 @@ for i in range(24):
         text=True,
     )
     try:
-        listed, _ = proc.communicate(timeout=20)
+        listed, _ = proc.communicate(timeout=45)
     except subprocess.TimeoutExpired:
         print("simctl list timed out while waiting for %s" % udid, file=sys.stderr, flush=True)
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        proc.wait()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
         time.sleep(5)
         continue
     for line in listed.splitlines():
@@ -72,7 +78,7 @@ for i in range(24):
     if i % 3 == 0:
         print("waiting for %s (%ss)" % (udid, i * 5), file=sys.stderr, flush=True)
     time.sleep(5)
-print("simulator %s was not Booted after 2 minutes" % udid, file=sys.stderr, flush=True)
+print("simulator %s was not Booted after 3 minutes" % udid, file=sys.stderr, flush=True)
 sys.exit(1)
 PY
   }
@@ -88,7 +94,12 @@ PY
     udid="$(printf '%s' "$udid" | tr -d '[:space:]')"
     echo "Created $name $udid" >&2
     run_deadline 90 xcrun simctl boot "$udid" >&2 || true
+    echo "simctl boot returned for $udid at $(date -u +%H:%M:%S)" >&2
     if wait_until_booted "$udid"; then
+      echo "simulator $udid is listed Booted at $(date -u +%H:%M:%S)" >&2
+      # bootstatus -b waits on SpringBoard. Cap it so a stuck service cannot
+      # hold the job, then install against whatever state the device reached.
+      run_deadline 120 xcrun simctl bootstatus "$udid" -b >&2 || true
       printf '%s\n' "$udid"
       return 0
     fi
