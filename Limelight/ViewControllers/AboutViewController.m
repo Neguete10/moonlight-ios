@@ -7,7 +7,7 @@
 #import "TwilightTheme.h"
 #import "Utils.h"
 
-static NSString * const kSourceRepositoryURL = @"https://github.com/Neguete10/moonlight-ios";
+static NSString * const kSourceRepositoryURL = @"https://github.com/Neguete10/twilight-ios";
 
 @implementation AboutViewController
 
