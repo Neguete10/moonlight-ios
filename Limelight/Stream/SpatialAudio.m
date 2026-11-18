@@ -132,19 +132,29 @@ TwilightSpatialRouteKind TwilightSpatialRouteKindForPort(NSString *portType) {
     if (portType.length == 0) {
         return TwilightSpatialRouteExternal;
     }
-    // String values of the session port constants. Literals keep this
-    // mapping available on both the iOS and tvOS SDKs.
-    if ([portType isEqualToString:@"Headphones"] ||
-        [portType isEqualToString:@"BluetoothA2DP"] ||
-        [portType isEqualToString:@"BluetoothHFP"] ||
-        [portType isEqualToString:@"BluetoothLE"] ||
-        [portType isEqualToString:@"AirPlay"]) {
+#if TWILIGHT_SPATIAL_RENDERER
+    // Compare the session's port constants. The A2DP value is
+    // BluetoothA2DPOutput, so a literal "BluetoothA2DP" misses AirPods.
+    if ([portType isEqualToString:AVAudioSessionPortHeadphones] ||
+        [portType isEqualToString:AVAudioSessionPortAirPlay]) {
         return TwilightSpatialRouteHeadphones;
     }
-    if ([portType isEqualToString:@"Speaker"] ||
-        [portType isEqualToString:@"Receiver"]) {
+#if !TARGET_OS_TV
+    if ([portType isEqualToString:AVAudioSessionPortBluetoothA2DP] ||
+        [portType isEqualToString:AVAudioSessionPortBluetoothLE] ||
+        [portType isEqualToString:AVAudioSessionPortBluetoothHFP]) {
+        return TwilightSpatialRouteHeadphones;
+    }
+    if ([portType isEqualToString:AVAudioSessionPortBuiltInReceiver]) {
         return TwilightSpatialRouteSpeakers;
     }
+#endif
+    if ([portType isEqualToString:AVAudioSessionPortBuiltInSpeaker]) {
+        return TwilightSpatialRouteSpeakers;
+    }
+#else
+    (void)portType;
+#endif
     return TwilightSpatialRouteExternal;
 }
 
@@ -550,6 +560,7 @@ static BOOL applyHeadTrackingLocked(BOOL enabled, TwilightSpatialRouteKind route
                                                 sizeof(tracking));
         if (status != noErr) {
             logStatus(status, @"head tracking");
+            Log(LOG_W, @"Head tracking stayed off; spatial playback continues");
             return NO;
         }
         UInt32 hrtf = kSpatialMixerPersonalizedHRTFMode_Auto;

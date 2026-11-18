@@ -309,16 +309,34 @@
     [self saveShot:@"keyboard-dismissed"];
 }
 
+- (BOOL)controlFrame:(CGRect)frame fitsWindow:(CGRect)window {
+    CGRect allowed = CGRectInset(window, -3, -3);
+    return frame.size.width > 8 && frame.size.height > 8 && CGRectContainsRect(allowed, frame);
+}
+
 - (void)scrollSettingsUntilHittable:(NSString *)identifier {
     XCUIElement *settings = [self waitForIdentifier:@"twilight.settings" timeout:4];
     XCUIElement *button = self.app.buttons[identifier];
-    for (NSInteger i = 0; i < 8; i++) {
-        if (button.exists && button.isHittable) {
+    XCTAssertTrue([button waitForExistenceWithTimeout:4], @"Missing %@", identifier);
+    // isHittable is true when a sliver of the control is inside the window.
+    // Keep scrolling until the whole control is on screen, then tap.
+    for (NSInteger i = 0; i < 16; i++) {
+        CGRect frame = button.frame;
+        CGRect window = [self windowFrame];
+        if (button.isHittable && [self controlFrame:frame fitsWindow:window]) {
             return;
         }
-        [settings swipeUp];
-        [self spinFor:0.3];
+        if (CGRectGetMinY(frame) < CGRectGetMinY(window) + 4) {
+            [settings swipeDown];
+        } else {
+            [settings swipeUp];
+        }
+        [self spinFor:0.35];
     }
+    CGRect frame = button.frame;
+    CGRect window = [self windowFrame];
+    XCTAssertTrue(button.isHittable && [self controlFrame:frame fitsWindow:window],
+                  @"%@ frame %@ is outside window %@", identifier, NSStringFromCGRect(frame), NSStringFromCGRect(window));
 }
 
 - (void)testSpatialAudioToggleStartsStreamWithoutCrashing {
