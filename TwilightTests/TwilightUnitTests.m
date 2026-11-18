@@ -12,6 +12,11 @@
 #import "StreamVideoLayout.h"
 #import "KeyboardSupport.h"
 #import "TwilightOnScreenKeyboard.h"
+#import "SpatialAudio.h"
+
+#import <AVFoundation/AVFoundation.h>
+#import <AudioToolbox/AudioToolbox.h>
+#import <stdint.h>
 
 @interface TwilightUnitTests : XCTestCase
 @end
@@ -175,6 +180,136 @@
 
     struct KeyEvent space = [KeyboardSupport translateKeyEvent:' ' withModifierFlags:0];
     XCTAssertEqual(space.keycode, 0x20);
+}
+
+- (void)testSpatialLayoutTagsMatchTheSurroundBed {
+    XCTAssertEqual(TwilightSpatialLayoutForChannelCount(6), TwilightSpatialLayout51);
+    XCTAssertEqual(TwilightSpatialLayoutForChannelCount(8), TwilightSpatialLayout71);
+    XCTAssertEqual(TwilightSpatialLayoutForChannelCount(2), TwilightSpatialLayoutNone);
+    XCTAssertEqual(TwilightSpatialLayoutForChannelCount(1), TwilightSpatialLayoutNone);
+    XCTAssertEqual(TwilightSpatialLayoutForChannelCount(4), TwilightSpatialLayoutNone);
+    XCTAssertEqual(TwilightSpatialLayoutForChannelCount(12), TwilightSpatialLayoutNone);
+
+    XCTAssertEqualObjects(TwilightSpatialLayoutName(TwilightSpatialLayout51), @"5.1");
+    XCTAssertEqualObjects(TwilightSpatialLayoutName(TwilightSpatialLayout71), @"7.1");
+    XCTAssertEqualObjects(TwilightSpatialLayoutName(TwilightSpatialLayoutNone), @"stereo");
+
+    XCTAssertEqual(TwilightSpatialChannelLayoutTag(6), (uint32_t)kAudioChannelLayoutTag_WAVE_5_1_B);
+    XCTAssertEqual(TwilightSpatialChannelLayoutTag(8), (uint32_t)kAudioChannelLayoutTag_WAVE_7_1);
+    XCTAssertEqual(TwilightSpatialChannelLayoutTag(2), 0u);
+    XCTAssertEqual(TwilightSpatialChannelLayoutTag(0), 0u);
+}
+
+- (void)testSpatialRouteKinds {
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortHeadphones), TwilightSpatialRouteHeadphones);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortBluetoothA2DP), TwilightSpatialRouteHeadphones);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortBluetoothHFP), TwilightSpatialRouteHeadphones);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortBluetoothLE), TwilightSpatialRouteHeadphones);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortAirPlay), TwilightSpatialRouteHeadphones);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortBuiltInSpeaker), TwilightSpatialRouteSpeakers);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortBuiltInReceiver), TwilightSpatialRouteSpeakers);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortHDMI), TwilightSpatialRouteExternal);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortUSBAudio), TwilightSpatialRouteExternal);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortCarAudio), TwilightSpatialRouteExternal);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(nil), TwilightSpatialRouteExternal);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(@""), TwilightSpatialRouteExternal);
+}
+
+- (void)testSpatialStatusLine {
+    NSString *off = TwilightSpatialStatusLine(NO, NO, NO, TwilightSpatialLayoutNone, TwilightSpatialRouteSpeakers, NO, NO);
+    XCTAssertEqualObjects(off, @"Spatial audio off");
+
+    NSString *active = TwilightSpatialStatusLine(YES, YES, NO, TwilightSpatialLayout71, TwilightSpatialRouteHeadphones, NO, NO);
+    XCTAssertEqualObjects(active, @"Spatial audio active 7.1 headphones");
+
+    NSString *tracked = TwilightSpatialStatusLine(YES, YES, YES, TwilightSpatialLayout51, TwilightSpatialRouteHeadphones, NO, NO);
+    XCTAssertEqualObjects(tracked, @"Spatial audio active 5.1 headphones, head tracking");
+
+    NSString *speakers = TwilightSpatialStatusLine(YES, YES, YES, TwilightSpatialLayout71, TwilightSpatialRouteSpeakers, NO, NO);
+    XCTAssertEqualObjects(speakers, @"Spatial audio active 7.1 speakers");
+
+    NSString *fallback = TwilightSpatialStatusLine(YES, NO, NO, TwilightSpatialLayout51, TwilightSpatialRouteSpeakers, YES, NO);
+    XCTAssertEqualObjects(fallback, @"Spatial audio fallback 5.1");
+
+    NSString *passthrough = TwilightSpatialStatusLine(YES, NO, NO, TwilightSpatialLayout71, TwilightSpatialRouteExternal, NO, YES);
+    XCTAssertEqualObjects(passthrough, @"Spatial audio passthrough 7.1");
+}
+
+- (void)testSpatialDownmixPlacesEachBedChannel {
+    int16_t out[2] = {0, 0};
+
+    int16_t left[6] = {1000, 0, 0, 0, 0, 0};
+    TwilightSpatialDownmixToStereo(left, 1, 6, out);
+    XCTAssertEqual(out[0], 1000);
+    XCTAssertEqual(out[1], 0);
+
+    int16_t right[6] = {0, 1000, 0, 0, 0, 0};
+    TwilightSpatialDownmixToStereo(right, 1, 6, out);
+    XCTAssertEqual(out[0], 0);
+    XCTAssertEqual(out[1], 1000);
+
+    int16_t center[6] = {0, 0, 1000, 0, 0, 0};
+    TwilightSpatialDownmixToStereo(center, 1, 6, out);
+    XCTAssertEqual(out[0], 707);
+    XCTAssertEqual(out[1], 707);
+
+    int16_t lfe[6] = {0, 0, 0, 1000, 0, 0};
+    TwilightSpatialDownmixToStereo(lfe, 1, 6, out);
+    XCTAssertEqual(out[0], 500);
+    XCTAssertEqual(out[1], 500);
+
+    int16_t backLeft[6] = {0, 0, 0, 0, 1000, 0};
+    TwilightSpatialDownmixToStereo(backLeft, 1, 6, out);
+    XCTAssertEqual(out[0], 707);
+    XCTAssertEqual(out[1], 0);
+
+    int16_t backRight[6] = {0, 0, 0, 0, 0, 1000};
+    TwilightSpatialDownmixToStereo(backRight, 1, 6, out);
+    XCTAssertEqual(out[0], 0);
+    XCTAssertEqual(out[1], 707);
+
+    int16_t sideLeft[8] = {0, 0, 0, 0, 0, 0, 1000, 0};
+    TwilightSpatialDownmixToStereo(sideLeft, 1, 8, out);
+    XCTAssertEqual(out[0], 707);
+    XCTAssertEqual(out[1], 0);
+
+    int16_t sideRight[8] = {0, 0, 0, 0, 0, 0, 0, 1000};
+    TwilightSpatialDownmixToStereo(sideRight, 1, 8, out);
+    XCTAssertEqual(out[0], 0);
+    XCTAssertEqual(out[1], 707);
+
+    int16_t hot[6] = {30000, 0, 30000, 0, 30000, 0};
+    TwilightSpatialDownmixToStereo(hot, 1, 6, out);
+    XCTAssertEqual(out[0], INT16_MAX);
+    XCTAssertEqual(out[1], (int16_t)((30000 * 707) / 1000));
+}
+
+- (void)testSpatialSettingsDefaultOffAndRoundTrip {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    BOOL audio = TwilightSpatialAudioEnabled();
+    BOOL head = TwilightSpatialHeadTrackingEnabled();
+
+    [defaults removeObjectForKey:TwilightSpatialAudioEnabledKey()];
+    [defaults removeObjectForKey:TwilightSpatialHeadTrackingEnabledKey()];
+    XCTAssertFalse(TwilightSpatialAudioEnabled());
+    XCTAssertFalse(TwilightSpatialHeadTrackingEnabled());
+    XCTAssertEqual(TwilightSpatialSurroundChannelCount(NO), 0);
+    XCTAssertEqual(TwilightSpatialSurroundChannelCount(YES), 8);
+    XCTAssertEqualObjects(TwilightSpatialCurrentStatusLine(), @"Spatial audio off");
+
+    TwilightSpatialSetAudioEnabled(YES);
+    TwilightSpatialSetHeadTrackingEnabled(YES);
+    XCTAssertTrue(TwilightSpatialAudioEnabled());
+    XCTAssertTrue(TwilightSpatialHeadTrackingEnabled());
+    XCTAssertEqual(TwilightSpatialSurroundChannelCount(TwilightSpatialAudioEnabled()), 8);
+
+    TwilightSpatialSetAudioEnabled(NO);
+    XCTAssertFalse(TwilightSpatialAudioEnabled());
+    XCTAssertTrue(TwilightSpatialHeadTrackingEnabled());
+    XCTAssertEqualObjects(TwilightSpatialCurrentStatusLine(), @"Spatial audio off");
+
+    TwilightSpatialSetAudioEnabled(audio);
+    TwilightSpatialSetHeadTrackingEnabled(head);
 }
 
 @end

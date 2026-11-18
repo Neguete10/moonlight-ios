@@ -309,4 +309,46 @@
     [self saveShot:@"keyboard-dismissed"];
 }
 
+- (void)scrollSettingsUntilHittable:(NSString *)identifier {
+    XCUIElement *settings = [self waitForIdentifier:@"twilight.settings" timeout:4];
+    XCUIElement *button = self.app.buttons[identifier];
+    for (NSInteger i = 0; i < 8; i++) {
+        if (button.exists && button.isHittable) {
+            return;
+        }
+        [settings swipeUp];
+        [self spinFor:0.3];
+    }
+}
+
+- (void)testSpatialAudioToggleStartsStreamWithoutCrashing {
+    [self launchMode:@"spatial"];
+    [self scrollSettingsUntilHittable:@"twilight.spatialAudio.1"];
+    [self tapIdentifier:@"twilight.spatialAudio.1"];
+    [self spinFor:0.3];
+    [self scrollSettingsUntilHittable:@"twilight.spatialHeadTracking.1"];
+    XCUIElement *head = self.app.buttons[@"twilight.spatialHeadTracking.1"];
+    if (head.exists && head.isHittable) {
+        [self tapIdentifier:@"twilight.spatialHeadTracking.1"];
+    }
+
+    XCUIElement *done = self.app.navigationBars[@"Settings"].buttons[@"Done"];
+    if (!done.exists) {
+        done = self.app.buttons[@"Done"];
+    }
+    XCTAssertTrue([done waitForExistenceWithTimeout:2], @"Settings Done button is missing");
+    [done tap];
+
+    [[XCUIDevice sharedDevice] setOrientation:UIDeviceOrientationLandscapeLeft];
+    [self assertVideoSettled];
+    XCUIElement *status = [self waitForIdentifier:@"twilight.spatial.status" timeout:6];
+    NSString *line = status.label.length > 0 ? status.label : [status.value description];
+    // The simulator often cannot run the spatial mixer. Either result means
+    // the stream started and playback fell back instead of crashing.
+    XCTAssertTrue([line containsString:@"Spatial audio"], @"Spatial status: %@", line);
+    XCTAssertTrue([line containsString:@"active"] || [line containsString:@"fallback"] || [line containsString:@"passthrough"],
+                  @"Spatial status: %@", line);
+    [self saveShot:@"spatial-audio"];
+}
+
 @end
