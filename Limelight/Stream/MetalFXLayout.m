@@ -201,4 +201,11 @@
     }
 }
 
++ (NSString *)statsLine:(NSString *)line appendingLatencyMs:(double)latencyMs {
+    if (line.length == 0 || latencyMs < 0) {
+        return line ?: @"";
+    }
+    return [NSString stringWithFormat:@"%@ +%.1f ms", line, latencyMs];
+}
+
 @end

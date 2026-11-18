@@ -13,6 +13,7 @@
 #import "StreamVideoLayout.h"
 
 #import <Metal/Metal.h>
+#import <objc/message.h>
 // The simulator SDK does not ship MetalFX.framework. Device SDKs do.
 // The stream always falls back to AVSampleBufferDisplayLayer when this is 0.
 #if !TARGET_OS_SIMULATOR && __has_include(<MetalFX/MetalFX.h>)
@@ -156,6 +157,16 @@ typedef struct {
     NSInteger _skippedForLayout;
     CGFloat _streamAspectRatio;
     CGSize _viewPixels;
+    dispatch_queue_t _renderQueue;
+    NSLock *_pendingLock;
+    CVPixelBufferRef _pendingBuffer;
+    CFTimeInterval _pendingDecodedAt;
+    BOOL _renderQueued;
+    id<MTLTexture> _rgbSlots[3];
+    int _rgbInFlight[3];
+    double _latencyEmaMs;
+    int _latencySamples;
+    int _latencyPublishedTenths;
     int _publishedW;
     int _publishedH;
     int _publishedOutW;
@@ -318,8 +329,23 @@ static NSString *gStatsLine;
     _layer.framebufferOnly = YES;
     _layer.opaque = YES;
     _layer.backgroundColor = [UIColor blackColor].CGColor;
+    // Two drawables, and nextDrawable gives up instead of blocking the decoder.
     _layer.maximumDrawableCount = 2;
+    _layer.presentsWithTransaction = NO;
+    _layer.framebufferOnly = NO;
+#if !TARGET_OS_TV
+    if (@available(iOS 18.0, *)) {
+        _layer.allowsNextDrawableTimeout = YES;
+    }
+#endif
+    SEL displaySync = NSSelectorFromString(@"setDisplaySyncEnabled:");
+    if ([_layer respondsToSelector:displaySync]) {
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(_layer, displaySync, NO);
+    }
     _layer.hidden = YES;
+    _renderQueue = dispatch_queue_create("twilight.metalfx.render", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0));
+    _pendingLock = [[NSLock alloc] init];
+    _latencyPublishedTenths = -1;
     if (_hdr) {
         if (@available(iOS 16.0, tvOS 16.0, *)) {
 #if !TARGET_OS_TV
@@ -490,19 +516,90 @@ static NSString *gStatsLine;
 }
 
 - (BOOL)renderPixelBuffer:(CVPixelBufferRef)pixelBuffer {
-    if (_invalid || _tornDown || _layer == nil || pixelBuffer == NULL) {
+    if (_invalid || _tornDown || _layer == nil || pixelBuffer == NULL || _renderQueue == nil) {
         return YES;
     }
-    if (![_renderLock tryLock]) {
-        // A frame is already encoding. Drop this one instead of queueing it.
-        return YES;
+    // Decode is done. Keep only the newest buffer and encode it off this thread.
+    CFTimeInterval decodedAt = CACurrentMediaTime();
+    CVPixelBufferRetain(pixelBuffer);
+    [_pendingLock lock];
+    CVPixelBufferRef dropped = _pendingBuffer;
+    _pendingBuffer = pixelBuffer;
+    _pendingDecodedAt = decodedAt;
+    BOOL kick = !_renderQueued;
+    _renderQueued = YES;
+    [_pendingLock unlock];
+    if (dropped != NULL) {
+        CVPixelBufferRelease(dropped);
     }
-    BOOL submitted = [self encodePixelBuffer:pixelBuffer];
-    [_renderLock unlock];
-    return submitted;
+    if (kick) {
+        dispatch_async(_renderQueue, ^{
+            [self drainPendingFrames];
+        });
+    }
+    return YES;
 }
 
-- (BOOL)encodePixelBuffer:(CVPixelBufferRef)pixelBuffer {
+- (void)drainPendingFrames {
+    while (!_invalid && !_tornDown) {
+        [_pendingLock lock];
+        CVPixelBufferRef buffer = _pendingBuffer;
+        CFTimeInterval decodedAt = _pendingDecodedAt;
+        _pendingBuffer = NULL;
+        if (buffer == NULL) {
+            _renderQueued = NO;
+            [_pendingLock unlock];
+            return;
+        }
+        [_pendingLock unlock];
+        [self encodePixelBuffer:buffer decodedAt:decodedAt];
+        CVPixelBufferRelease(buffer);
+    }
+}
+
+- (int)acquireRgbSlotForWidth:(NSUInteger)width height:(NSUInteger)height {
+    for (int i = 0; i < 3; i++) {
+        if (__atomic_load_n(&_rgbInFlight[i], __ATOMIC_ACQUIRE) != 0) {
+            continue;
+        }
+        id<MTLTexture> tex = _rgbSlots[i];
+        if (tex == nil || tex.width != width || tex.height != height || tex.pixelFormat != _colorFormat) {
+            MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:_colorFormat width:width height:height mipmapped:NO];
+            desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+            desc.storageMode = MTLStorageModePrivate;
+            tex = [_device newTextureWithDescriptor:desc];
+            if (tex == nil) {
+                continue;
+            }
+            _rgbSlots[i] = tex;
+        }
+        __atomic_store_n(&_rgbInFlight[i], 1, __ATOMIC_RELEASE);
+        return i;
+    }
+    return -1;
+}
+
+- (void)recordPresentedLatencyMs:(double)ms {
+    if (ms < 0 || ms > 200) {
+        return;
+    }
+    _latencyEmaMs = _latencySamples == 0 ? ms : (_latencyEmaMs * 0.8 + ms * 0.2);
+    _latencySamples++;
+    int tenths = (int)llround(_latencyEmaMs * 10.0);
+    if (tenths == _latencyPublishedTenths) {
+        return;
+    }
+    _latencyPublishedTenths = tenths;
+    if (_publishedW < 2 || _publishedH < 2) {
+        return;
+    }
+    NSString *base = [MetalFXLayout statsLineForMode:MetalFXStatsModeActive
+                                               input:CGSizeMake(_publishedW, _publishedH)
+                                              output:CGSizeMake(_publishedOutW, _publishedOutH)];
+    [MetalFXFrameRenderer publishStatsLine:[MetalFXLayout statsLine:base appendingLatencyMs:_latencyEmaMs]];
+}
+
+- (BOOL)encodePixelBuffer:(CVPixelBufferRef)pixelBuffer decodedAt:(CFTimeInterval)decodedAt {
     OSType format = CVPixelBufferGetPixelFormatType(pixelBuffer);
     BOOL tenBit = format == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange || format == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange;
     BOOL bufferFull = format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange || format == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange;
@@ -525,9 +622,6 @@ static NSString *gStatsLine;
     size_t uvHeight = CVPixelBufferGetHeightOfPlane(pixelBuffer, 1);
     if (width < 2 || height < 2 || uvWidth < 1 || uvHeight < 1) {
         return YES;
-    }
-    if (_textureCache != NULL) {
-        CVMetalTextureCacheFlush(_textureCache, 0);
     }
     CGSize drawablePixels = _layer.drawableSize;
     if (drawablePixels.width < 2 || drawablePixels.height < 2) {
@@ -562,6 +656,12 @@ static NSString *gStatsLine;
         [self failWithReason:@"spatial scaler setup failed"];
         return NO;
     }
+    int rgbSlot = [self acquireRgbSlotForWidth:width height:height];
+    if (rgbSlot < 0) {
+        // All three color targets are still on the GPU. Drop this frame.
+        return YES;
+    }
+    id<MTLTexture> rgbTexture = _rgbSlots[rgbSlot];
 
     MTLPixelFormat yFormat = tenBit ? MTLPixelFormatR16Unorm : MTLPixelFormatR8Unorm;
     MTLPixelFormat uvFormat = tenBit ? MTLPixelFormatRG16Unorm : MTLPixelFormatRG8Unorm;
@@ -581,10 +681,12 @@ static NSString *gStatsLine;
 
     id<CAMetalDrawable> metalDrawable = [_layer nextDrawable];
     if (metalDrawable == nil) {
+        __atomic_store_n(&_rgbInFlight[rgbSlot], 0, __ATOMIC_RELEASE);
         return YES;
     }
     id<MTLCommandBuffer> commandBuffer = [_queue commandBuffer];
     if (commandBuffer == nil) {
+        __atomic_store_n(&_rgbInFlight[rgbSlot], 0, __ATOMIC_RELEASE);
         [self failWithReason:@"command buffer was not created"];
         return NO;
     }
@@ -606,11 +708,12 @@ static NSString *gStatsLine;
     }
 
     MTLRenderPassDescriptor *yuvPass = [MTLRenderPassDescriptor renderPassDescriptor];
-    yuvPass.colorAttachments[0].texture = _rgbTexture;
+    yuvPass.colorAttachments[0].texture = rgbTexture;
     yuvPass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
     yuvPass.colorAttachments[0].storeAction = MTLStoreActionStore;
     id<MTLRenderCommandEncoder> yuvEncoder = [commandBuffer renderCommandEncoderWithDescriptor:yuvPass];
     if (yuvEncoder == nil) {
+        __atomic_store_n(&_rgbInFlight[rgbSlot], 0, __ATOMIC_RELEASE);
         [self failWithReason:@"YUV encoder was not created"];
         return NO;
     }
@@ -625,52 +728,61 @@ static NSString *gStatsLine;
     (void)metalDrawable;
     (void)commandBuffer;
     (void)params;
+    (void)decodedAt;
+    __atomic_store_n(&_rgbInFlight[rgbSlot], 0, __ATOMIC_RELEASE);
     [self failWithReason:@"MetalFX is unavailable"];
     return NO;
 #else
+    BOOL directToDrawable = metalDrawable.texture.width == _scalerOutW
+        && metalDrawable.texture.height == _scalerOutH
+        && metalDrawable.texture.pixelFormat == _colorFormat;
     if (@available(iOS 16.0, tvOS 16.0, *)) {
         id<MTLFXSpatialScaler> scaler = _scaler;
-        scaler.colorTexture = _rgbTexture;
-        scaler.outputTexture = _scaledTexture;
+        scaler.colorTexture = rgbTexture;
+        scaler.outputTexture = directToDrawable ? metalDrawable.texture : _scaledTexture;
         scaler.inputContentWidth = width;
         scaler.inputContentHeight = height;
         [scaler encodeToCommandBuffer:commandBuffer];
     }
     else {
+        __atomic_store_n(&_rgbInFlight[rgbSlot], 0, __ATOMIC_RELEASE);
         [self failWithReason:@"MetalFX is unavailable"];
         return NO;
     }
 
-    CGRect viewport = [MetalFXLayout metalViewportForOutputRect:output drawableHeight:metalDrawable.texture.height];
-    MTLRenderPassDescriptor *blitPass = [MTLRenderPassDescriptor renderPassDescriptor];
-    blitPass.colorAttachments[0].texture = metalDrawable.texture;
-    blitPass.colorAttachments[0].loadAction = MTLLoadActionClear;
-    blitPass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
-    blitPass.colorAttachments[0].storeAction = MTLStoreActionStore;
-    id<MTLRenderCommandEncoder> blit = [commandBuffer renderCommandEncoderWithDescriptor:blitPass];
-    if (blit == nil) {
-        [self failWithReason:@"blit encoder was not created"];
-        return NO;
+    if (!directToDrawable) {
+        CGRect viewport = [MetalFXLayout metalViewportForOutputRect:output drawableHeight:metalDrawable.texture.height];
+        MTLRenderPassDescriptor *blitPass = [MTLRenderPassDescriptor renderPassDescriptor];
+        blitPass.colorAttachments[0].texture = metalDrawable.texture;
+        blitPass.colorAttachments[0].loadAction = MTLLoadActionClear;
+        blitPass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
+        blitPass.colorAttachments[0].storeAction = MTLStoreActionStore;
+        id<MTLRenderCommandEncoder> blit = [commandBuffer renderCommandEncoderWithDescriptor:blitPass];
+        if (blit == nil) {
+            __atomic_store_n(&_rgbInFlight[rgbSlot], 0, __ATOMIC_RELEASE);
+            [self failWithReason:@"blit encoder was not created"];
+            return NO;
+        }
+        [blit setRenderPipelineState:_blitPipeline];
+        [blit setFragmentTexture:_scaledTexture atIndex:0];
+        MTLViewport metalViewport = {
+            viewport.origin.x, viewport.origin.y, viewport.size.width, viewport.size.height, 0, 1
+        };
+        [blit setViewport:metalViewport];
+        [blit drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        [blit endEncoding];
     }
-    [blit setRenderPipelineState:_blitPipeline];
-    [blit setFragmentTexture:_scaledTexture atIndex:0];
-    MTLViewport metalViewport = {
-        viewport.origin.x, viewport.origin.y, viewport.size.width, viewport.size.height, 0, 1
-    };
-    [blit setViewport:metalViewport];
-    [blit drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-    [blit endEncoding];
 
-    [commandBuffer presentDrawable:metalDrawable];
-    id scaler = _scaler;
-    id<MTLTexture> rgb = _rgbTexture;
-    id<MTLTexture> scaled = _scaledTexture;
+    [metalDrawable addPresentedHandler:^(id<MTLDrawable> presented) {
+        (void)presented;
+        [self recordPresentedLatencyMs:(CACurrentMediaTime() - decodedAt) * 1000.0];
+    }];
+    [commandBuffer presentDrawable:metalDrawable afterMinimumDuration:0];
+    int finishedSlot = rgbSlot;
     [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
         (void)held;
-        (void)scaler;
-        (void)rgb;
-        (void)scaled;
         (void)buffer;
+        __atomic_store_n(&self->_rgbInFlight[finishedSlot], 0, __ATOMIC_RELEASE);
     }];
     [commandBuffer commit];
 
@@ -684,7 +796,13 @@ static NSString *gStatsLine;
         _publishedH = inH;
         _publishedOutW = outW;
         _publishedOutH = outH;
-        [MetalFXFrameRenderer publishActiveInput:CGSizeMake(inW, inH) output:CGSizeMake(outW, outH)];
+        NSString *base = [MetalFXLayout statsLineForMode:MetalFXStatsModeActive
+                                                   input:CGSizeMake(inW, inH)
+                                                  output:CGSizeMake(outW, outH)];
+        if (_latencySamples > 0) {
+            base = [MetalFXLayout statsLine:base appendingLatencyMs:_latencyEmaMs];
+        }
+        [MetalFXFrameRenderer publishStatsLine:base];
     }
     if (!_announcedFrame) {
         _announcedFrame = YES;
@@ -706,6 +824,18 @@ static NSString *gStatsLine;
     }
     _tornDown = YES;
     _invalid = YES;
+    if (_pendingLock != nil) {
+        [_pendingLock lock];
+        CVPixelBufferRef pending = _pendingBuffer;
+        _pendingBuffer = NULL;
+        [_pendingLock unlock];
+        if (pending != NULL) {
+            CVPixelBufferRelease(pending);
+        }
+    }
+    if (_renderQueue != nil) {
+        dispatch_sync(_renderQueue, ^{});
+    }
     if (_observing && _view != nil) {
         [_view removeObserver:self forKeyPath:@"bounds" context:MetalFXBoundsContext];
         _observing = NO;

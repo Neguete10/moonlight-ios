@@ -400,6 +400,9 @@
     NSString *active = [MetalFXLayout statsLineForMode:MetalFXStatsModeActive input:CGSizeMake(1280, 720) output:CGSizeMake(2622, 1206)];
     XCTAssertEqualObjects(active, @"MetalFX active 1280x720 -> 2622x1206");
     XCTAssertEqualObjects([MetalFXLayout statsLineForMode:MetalFXStatsModeActive input:CGSizeZero output:CGSizeZero], @"MetalFX active");
+    NSString *timed = [MetalFXLayout statsLine:@"MetalFX active 1280x720 -> 2334x1206" appendingLatencyMs:4.16];
+    XCTAssertEqualObjects(timed, @"MetalFX active 1280x720 -> 2334x1206 +4.2 ms");
+    XCTAssertEqualObjects([MetalFXLayout statsLine:@"MetalFX off" appendingLatencyMs:-1], @"MetalFX off");
 }
 
 @end

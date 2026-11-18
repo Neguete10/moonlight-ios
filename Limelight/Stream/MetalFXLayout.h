@@ -63,6 +63,9 @@ typedef NS_ENUM(NSInteger, MetalFXStatsMode) {
                          input:(CGSize)input
                         output:(CGSize)output;
 
+/// Appends " +1.2 ms" when latencyMs is zero or positive. A negative value leaves the line unchanged.
++ (NSString *)statsLine:(NSString *)line appendingLatencyMs:(double)latencyMs;
+
 @end
 
 NS_ASSUME_NONNULL_END

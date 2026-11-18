@@ -18,6 +18,7 @@
 #include <libavcodec/cbs_av1.h>
 #include <libavformat/avio.h>
 #include <libavutil/mem.h>
+#include <unistd.h>
 
 // Private libavformat API for writing the AV1 Codec Configuration Box
 extern int ff_isom_write_av1c(AVIOContext *pb, const uint8_t *buf, int size,
@@ -59,6 +60,8 @@ static void MetalFXDecompressionCallback(void *decompressionOutputRefCon,
     int frameRate;
 
     MetalFXFrameRenderer *_metalRenderer;
+    NSThread *_metalPumpThread;
+    volatile BOOL _metalPumpStop;
     VTDecompressionSessionRef _decompressionSession;
     CMVideoFormatDescriptionRef _sessionFormat;
     OSType _sessionPixelFormat;
@@ -163,8 +166,11 @@ static void MetalFXDecompressionCallback(void *decompressionOutputRefCon,
     self->frameRate = frameRate;
 }
 
-- (void)start
+- (void)startDisplayLink
 {
+    if (_displayLink != nil) {
+        return;
+    }
     _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(displayLinkCallback:)];
     if (@available(iOS 15.0, tvOS 15.0, *)) {
         _displayLink.preferredFrameRateRange = CAFrameRateRangeMake(self->frameRate, self->frameRate, self->frameRate);
@@ -173,6 +179,67 @@ static void MetalFXDecompressionCallback(void *decompressionOutputRefCon,
         _displayLink.preferredFramesPerSecond = self->frameRate;
     }
     [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
+}
+
+- (void)start
+{
+    // MetalFX presents as soon as a frame is decoded. Waiting for the display
+    // link first would add a refresh of delay before decode even starts.
+    if (_metalRenderer != nil) {
+        [self startMetalFramePump];
+        return;
+    }
+    [self startDisplayLink];
+}
+
+- (void)startMetalFramePump {
+    if (_metalPumpThread != nil) {
+        return;
+    }
+    _metalPumpStop = NO;
+    _metalPumpThread = [[NSThread alloc] initWithTarget:self selector:@selector(metalFramePump) object:nil];
+    _metalPumpThread.name = @"MetalFX frame pump";
+    _metalPumpThread.qualityOfService = NSQualityOfServiceUserInteractive;
+    [_metalPumpThread start];
+}
+
+- (void)stopMetalFramePump {
+    _metalPumpStop = YES;
+    NSThread *thread = _metalPumpThread;
+    if (thread == nil || [NSThread currentThread] == thread) {
+        return;
+    }
+    for (int i = 0; i < 50 && !thread.isFinished; i++) {
+        usleep(200);
+    }
+    _metalPumpThread = nil;
+}
+
+- (void)metalFramePump {
+    while (!_metalPumpStop) {
+        VIDEO_FRAME_HANDLE handle;
+        PDECODE_UNIT du;
+        if (!LiPollNextVideoFrame(&handle, &du)) {
+            usleep(200);
+            continue;
+        }
+        // Keep the newest frame only. Older ones would become display lag.
+        while (!_metalPumpStop && LiGetPendingVideoFrames() > 0) {
+            LiCompleteVideoFrame(handle, DR_OK);
+            if (!LiPollNextVideoFrame(&handle, &du)) {
+                du = NULL;
+                break;
+            }
+        }
+        if (du == NULL || _metalPumpStop) {
+            if (du != NULL) {
+                LiCompleteVideoFrame(handle, DR_OK);
+            }
+            continue;
+        }
+        int status = DrSubmitDecodeUnit(du);
+        LiCompleteVideoFrame(handle, status);
+    }
 }
 
 // TODO: Refactor this
@@ -206,6 +273,7 @@ int DrSubmitDecodeUnit(PDECODE_UNIT decodeUnit);
 
 - (void)stop
 {
+    [self stopMetalFramePump];
     [_displayLink invalidate];
     _displayLink = nil;
     [self teardownMetalDecoder];
@@ -229,10 +297,22 @@ int DrSubmitDecodeUnit(PDECODE_UNIT decodeUnit);
 }
 
 - (void)abandonMetalFX:(NSString *)reason requestIdr:(BOOL)requestIdr {
+    _metalPumpStop = YES;
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self abandonMetalFX:reason requestIdr:requestIdr];
+        });
+        return;
+    }
     if (_metalAbandoned || (_metalRenderer == nil && _decompressionSession == NULL)) {
+        [self stopMetalFramePump];
+        if (_displayLink == nil && _metalRenderer == nil) {
+            [self startDisplayLink];
+        }
         return;
     }
     _metalAbandoned = YES;
+    [self stopMetalFramePump];
     Log(LOG_W, @"MetalFX %@", reason);
     [MetalFXFrameRenderer publishFallback];
     [self teardownMetalDecoder];
@@ -242,9 +322,13 @@ int DrSubmitDecodeUnit(PDECODE_UNIT decodeUnit);
     if (requestIdr) {
         LiRequestIdrFrame();
     }
+    if (_displayLink == nil) {
+        [self startDisplayLink];
+    }
 }
 
 - (void)dealloc {
+    _metalPumpStop = YES;
     [self teardownMetalDecoder];
 }
 
