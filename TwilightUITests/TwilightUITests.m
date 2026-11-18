@@ -309,4 +309,39 @@
     [self saveShot:@"keyboard-dismissed"];
 }
 
+- (void)scrollSettingsUntilHittable:(NSString *)identifier {
+    XCUIElement *settings = [self waitForIdentifier:@"twilight.settings" timeout:4];
+    XCUIElement *button = self.app.buttons[identifier];
+    for (NSInteger i = 0; i < 8; i++) {
+        if (button.exists && button.isHittable) {
+            return;
+        }
+        [settings swipeUp];
+        [self spinFor:0.3];
+    }
+}
+
+- (void)testMetalFXToggleStartsStreamAndFallsBack {
+    [self launchMode:@"metalfx"];
+    [self scrollSettingsUntilHittable:@"twilight.metalfx.1"];
+    [self tapIdentifier:@"twilight.metalfx.1"];
+    [self scrollSettingsUntilHittable:@"twilight.metalfx.scale.0"];
+    [self tapIdentifier:@"twilight.metalfx.scale.0"];
+    XCUIElement *done = self.app.navigationBars[@"Settings"].buttons[@"Done"];
+    if (!done.exists) {
+        done = self.app.buttons[@"Done"];
+    }
+    XCTAssertTrue([done waitForExistenceWithTimeout:2], @"Settings Done button is missing");
+    [done tap];
+
+    [[XCUIDevice sharedDevice] setOrientation:UIDeviceOrientationLandscapeLeft];
+    [self assertVideoSettled];
+    XCUIElement *status = [self waitForIdentifier:@"twilight.metalfx.status" timeout:4];
+    NSString *line = status.label.length > 0 ? status.label : [status.value description];
+    // The simulator does not advertise MTLFXSpatialScaler. The stream stays
+    // on the display layer, which is the fallback the setting promises.
+    XCTAssertTrue([line containsString:@"fallback"], @"MetalFX status: %@", line);
+    [self saveShot:@"metalfx-fallback"];
+}
+
 @end

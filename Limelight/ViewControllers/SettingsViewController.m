@@ -13,10 +13,13 @@
 #import "Utils.h"
 #import "TwilightTheme.h"
 #import "StreamVideoLayout.h"
+#import "MetalFXLayout.h"
+#import "MetalFXFrameRenderer.h"
 #import "Utils.h"
 
 #import <VideoToolbox/VideoToolbox.h>
 #import <AVFoundation/AVFoundation.h>
+#include <stdlib.h>
 
 @interface TwilightSegmentWrap : UIView
 - (instancetype)initWithControl:(UISegmentedControl *)control;
@@ -35,6 +38,7 @@
     }
     _control = control;
     _buttons = [NSMutableArray array];
+    control.isAccessibilityElement = NO;
     self.backgroundColor = [UIColor clearColor];
     return self;
 }
@@ -50,6 +54,9 @@
     for (NSInteger i = 0; i < _control.numberOfSegments; i++) {
         UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
         button.tag = i;
+        if (_control.accessibilityIdentifier.length > 0) {
+            button.accessibilityIdentifier = [NSString stringWithFormat:@"%@.%ld", _control.accessibilityIdentifier, (long)i];
+        }
         button.titleLabel.font = [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightSemibold];
         button.titleLabel.adjustsFontSizeToFitWidth = YES;
         button.titleLabel.minimumScaleFactor = 0.65;
@@ -172,6 +179,8 @@
     UISegmentedControl *_adaptiveBitrateSelector;
     UISegmentedControl *_microphoneSelector;
     UISegmentedControl *_quitAppAfterSelector;
+    UISegmentedControl *_metalFXSelector;
+    UISegmentedControl *_metalFXScaleSelector;
     UILabel *_versionLabel;
     NSArray<UIView *> *_settingsRows;
     BOOL _settingsReady;
@@ -205,6 +214,26 @@
 
     UISegmentedControl *control = [[UISegmentedControl alloc] initWithItems:@[@"No", @"Yes"]];
     control.frame = CGRectMake(anchor.frame.origin.x, controlY, anchor.frame.size.width, 32);
+    control.selectedSegmentIndex = 0;
+    control.tintColor = [TwilightTheme accent];
+    if (@available(iOS 13.0, tvOS 13.0, *)) {
+        control.selectedSegmentTintColor = [TwilightTheme accent];
+    }
+    [self.scrollView addSubview:control];
+    return control;
+}
+
+- (UISegmentedControl *)addChoiceControlTitled:(NSString *)title options:(NSArray<NSString *> *)options below:(UIView *)anchor {
+    CGFloat y = CGRectGetMaxY(anchor.frame) + 20;
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(22, y, 420, 24)];
+    label.text = title;
+    label.font = [TwilightTheme fontForStyle:UIFontTextStyleHeadline weight:UIFontWeightSemibold];
+    label.adjustsFontForContentSizeCategory = YES;
+    label.textColor = [TwilightTheme ink];
+    [self.scrollView addSubview:label];
+
+    UISegmentedControl *control = [[UISegmentedControl alloc] initWithItems:options];
+    control.frame = CGRectMake(anchor.frame.origin.x, y + 30, anchor.frame.size.width, 32);
     control.selectedSegmentIndex = 0;
     control.tintColor = [TwilightTheme accent];
     if (@available(iOS 13.0, tvOS 13.0, *)) {
@@ -579,7 +608,29 @@ BOOL isCustomResolution(CGSize res) {
     [self.touchModeSelector addTarget:self action:@selector(touchModeChanged) forControlEvents:UIControlEventValueChanged];
     [self.statsOverlaySelector setSelectedSegmentIndex:currentSettings.statsOverlay ? 1 : 0];
     if (self.statsOverlaySelector != nil) {
-        _adaptiveBitrateSelector = [self addYesNoControlTitled:@"Adaptive Bitrate" below:self.statsOverlaySelector];
+        BOOL metalFXSupported = [MetalFXFrameRenderer deviceSupportsSpatialScaler];
+        const char *uiTestMode = getenv("TWILIGHT_UITEST");
+        BOOL allowMetalFXToggle = metalFXSupported || (uiTestMode != NULL && uiTestMode[0] != '\0');
+        NSString *metalSubtitle = allowMetalFXToggle
+            ? @"Upscale to this screen. 50%, 67%, and 75% ask the host for that fraction of the screen. Resolution uses the resolution above."
+            : @"Unavailable on this device.";
+        _metalFXSelector = [self addYesNoControlTitled:@"MetalFX Upscaling" subtitle:metalSubtitle below:self.statsOverlaySelector];
+        _metalFXSelector.accessibilityIdentifier = @"twilight.metalfx";
+        UIView *videoAnchor = _metalFXSelector;
+        if (allowMetalFXToggle) {
+            _metalFXSelector.selectedSegmentIndex = currentSettings.metalFXEnabled ? 1 : 0;
+            _metalFXScaleSelector = [self addChoiceControlTitled:@"MetalFX Scale"
+                                                         options:@[@"50%", @"67%", @"75%", @"Resolution"]
+                                                           below:_metalFXSelector];
+            _metalFXScaleSelector.accessibilityIdentifier = @"twilight.metalfx.scale";
+            _metalFXScaleSelector.selectedSegmentIndex = [MetalFXLayout choiceIndexForScalePercent:currentSettings.metalFXScale];
+            videoAnchor = _metalFXScaleSelector;
+        }
+        else {
+            _metalFXSelector.enabled = NO;
+            _metalFXSelector.selectedSegmentIndex = 0;
+        }
+        _adaptiveBitrateSelector = [self addYesNoControlTitled:@"Adaptive Bitrate" below:videoAnchor];
         [_adaptiveBitrateSelector setSelectedSegmentIndex:currentSettings.enableAdaptiveBitrate ? 1 : 0];
 #if !TARGET_OS_TV
         _microphoneSelector = [self addYesNoControlTitled:@"Microphone Passthrough" below:_adaptiveBitrateSelector];
@@ -1014,6 +1065,8 @@ BOOL isCustomResolution(CGSize res) {
     BOOL enableAdaptiveBitrate = [_adaptiveBitrateSelector selectedSegmentIndex] == 1;
     BOOL enableMicrophone = [_microphoneSelector selectedSegmentIndex] == 1;
     BOOL quitAppAfter = [_quitAppAfterSelector selectedSegmentIndex] == 1;
+    BOOL metalFXEnabled = _metalFXSelector != nil && _metalFXSelector.enabled && _metalFXSelector.selectedSegmentIndex == 1;
+    NSInteger metalFXScale = _metalFXScaleSelector != nil ? [MetalFXLayout scalePercentForChoiceIndex:_metalFXScaleSelector.selectedSegmentIndex] : 0;
     [dataMan saveSettingsWithBitrate:_bitrate
                            framerate:framerate
                               height:height
@@ -1032,7 +1085,9 @@ BOOL isCustomResolution(CGSize res) {
                         statsOverlay:statsOverlay
                enableAdaptiveBitrate:enableAdaptiveBitrate
                    enableMicrophone:enableMicrophone
-                      quitAppAfter:quitAppAfter];
+                      quitAppAfter:quitAppAfter
+                    metalFXEnabled:metalFXEnabled
+                      metalFXScale:metalFXScale];
 }
 
 - (void)didReceiveMemoryWarning {

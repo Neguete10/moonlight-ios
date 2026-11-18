@@ -70,7 +70,9 @@
                     statsOverlay:(BOOL)statsOverlay
            enableAdaptiveBitrate:(BOOL)enableAdaptiveBitrate
                enableMicrophone:(BOOL)enableMicrophone
-                      quitAppAfter:(BOOL)quitAppAfter {
+                      quitAppAfter:(BOOL)quitAppAfter
+                    metalFXEnabled:(BOOL)metalFXEnabled
+                      metalFXScale:(NSInteger)metalFXScale {
     
     [_managedObjectContext performBlockAndWait:^{
         Settings* settingsToSave = [self retrieveSettings];
@@ -93,6 +95,8 @@
         settingsToSave.enableAdaptiveBitrate = enableAdaptiveBitrate;
         settingsToSave.enableMicrophone = enableMicrophone;
         settingsToSave.quitAppAfter = quitAppAfter;
+        settingsToSave.metalFXEnabled = metalFXEnabled;
+        settingsToSave.metalFXScale = (int32_t)metalFXScale;
         
         [self saveData];
     }];

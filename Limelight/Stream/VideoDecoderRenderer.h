@@ -16,6 +16,10 @@
 
 - (id)initWithView:(UIView*)view callbacks:(id<ConnectionCallbacks>)callbacks streamAspectRatio:(float)aspectRatio useFramePacing:(BOOL)useFramePacing;
 
+// enableMetalFX is off unless the stream asked for spatial upscaling. hdr
+// selects the extended-range target. Either failure falls back inside init.
+- (id)initWithView:(UIView*)view callbacks:(id<ConnectionCallbacks>)callbacks streamAspectRatio:(float)aspectRatio useFramePacing:(BOOL)useFramePacing enableMetalFX:(BOOL)enableMetalFX hdr:(BOOL)hdr;
+
 - (void)setupWithVideoFormat:(int)videoFormat width:(int)videoWidth height:(int)videoHeight frameRate:(int)frameRate;
 - (void)start;
 - (void)stop;

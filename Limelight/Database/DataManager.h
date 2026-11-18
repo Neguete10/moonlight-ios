@@ -31,7 +31,9 @@
                     statsOverlay:(BOOL)statsOverlay
            enableAdaptiveBitrate:(BOOL)enableAdaptiveBitrate
                enableMicrophone:(BOOL)enableMicrophone
-                      quitAppAfter:(BOOL)quitAppAfter;
+                      quitAppAfter:(BOOL)quitAppAfter
+                    metalFXEnabled:(BOOL)metalFXEnabled
+                      metalFXScale:(NSInteger)metalFXScale;
 
 - (NSArray*) getHosts;
 - (void) updateHost:(TemporaryHost*)host;

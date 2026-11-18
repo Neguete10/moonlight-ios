@@ -14,6 +14,7 @@
 #import "Utils.h"
 
 #import "StreamView.h"
+#import "MetalFXFrameRenderer.h"
 #import "ServerInfoResponse.h"
 #import "HttpResponse.h"
 #import "HttpRequest.h"
@@ -129,7 +130,7 @@ static BOOL twilightHostLooksLocal(NSString *host) {
     
     // Initializing the renderer must be done on the main thread
     dispatch_async(dispatch_get_main_queue(), ^{
-        VideoDecoderRenderer* renderer = [[VideoDecoderRenderer alloc] initWithView:self->_renderView callbacks:self->_callbacks streamAspectRatio:(float)self->_config.width / (float)self->_config.height useFramePacing:self->_config.useFramePacing];
+        VideoDecoderRenderer* renderer = [[VideoDecoderRenderer alloc] initWithView:self->_renderView callbacks:self->_callbacks streamAspectRatio:(float)self->_config.width / (float)self->_config.height useFramePacing:self->_config.useFramePacing enableMetalFX:self->_config.enableMetalFX hdr:self->_config.enableHdr];
         self->_connection = [[Connection alloc] initWithConfig:self->_config renderer:renderer connectionCallbacks:self->_callbacks];
         NSOperationQueue* opQueue = [[NSOperationQueue alloc] init];
         [opQueue addOperation:self->_connection];
@@ -278,7 +279,7 @@ static BOOL twilightHostLooksLocal(NSString *host) {
     if (adaptiveKbps > 0) {
         adaptive = [NSString stringWithFormat:@" %.1f Mbps adaptive", adaptiveKbps / 1000.0];
     }
-    return [NSString stringWithFormat:@"Video stream: %dx%d %.2f FPS (Codec: %@)\n%.1f Mbps requested, %.1f Mbps estimated encoder target, %.1f Mbps measured%@\nFrames dropped by your network connection: %.2f%%\nAverage network latency: %@%@",
+    NSString *text = [NSString stringWithFormat:@"Video stream: %dx%d %.2f FPS (Codec: %@)\n%.1f Mbps requested, %.1f Mbps estimated encoder target, %.1f Mbps measured%@\nFrames dropped by your network connection: %.2f%%\nAverage network latency: %@%@",
             _config.width,
             _config.height,
             stats.totalFrames / interval,
@@ -290,6 +291,11 @@ static BOOL twilightHostLooksLocal(NSString *host) {
             stats.networkDroppedFrames / interval,
             latencyString,
             hostProcessingString];
+    NSString *metal = [MetalFXFrameRenderer statsLine];
+    if (metal.length > 0) {
+        return [text stringByAppendingFormat:@"\n%@", metal];
+    }
+    return text;
 }
 
 @end

@@ -21,6 +21,7 @@
 #import "TwilightInputLog.h"
 #import "Utils.h"
 #import <AVFoundation/AVFoundation.h>
+#import <QuartzCore/CAMetalLayer.h>
 #import <objc/runtime.h>
 
 static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
@@ -187,6 +188,23 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
         layer.affineTransform = CGAffineTransformIdentity;
         layer.bounds = CGRectMake(0, 0, videoRect.size.width, videoRect.size.height);
         layer.position = CGPointMake(CGRectGetMidX(videoRect), CGRectGetMidY(videoRect));
+    }
+    for (CALayer *layer in self.layer.sublayers) {
+        if (![layer isKindOfClass:[CAMetalLayer class]]) {
+            continue;
+        }
+        CAMetalLayer *metalLayer = (CAMetalLayer *)layer;
+        metalLayer.frame = self.bounds;
+        CGFloat scale = self.window.screen.scale;
+        if (scale < 0.5f) {
+            scale = UIScreen.mainScreen.scale;
+        }
+        if (scale < 0.5f) {
+            scale = 1;
+        }
+        metalLayer.contentsScale = scale;
+        metalLayer.drawableSize = CGSizeMake(MAX(1, round(self.bounds.size.width * scale)),
+                                             MAX(1, round(self.bounds.size.height * scale)));
     }
     if ([TwilightInputLog isEnabled]) {
         if (streamSurface == nil) {

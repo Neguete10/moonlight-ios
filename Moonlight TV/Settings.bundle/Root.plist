@@ -266,6 +266,40 @@
 			<key>Type</key>
 			<string>PSToggleSwitchSpecifier</string>
 			<key>Title</key>
+			<string>MetalFX Upscaling</string>
+			<key>Key</key>
+			<string>metalFXEnabled</string>
+			<key>DefaultValue</key>
+			<false/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSMultiValueSpecifier</string>
+			<key>Title</key>
+			<string>MetalFX Scale</string>
+			<key>Key</key>
+			<string>metalFXScale</string>
+			<key>DefaultValue</key>
+			<string>0</string>
+			<key>Values</key>
+			<array>
+				<string>50</string>
+				<string>67</string>
+				<string>75</string>
+				<string>0</string>
+			</array>
+			<key>Titles</key>
+			<array>
+				<string>50% of screen</string>
+				<string>67% of screen</string>
+				<string>75% of screen</string>
+				<string>Chosen resolution</string>
+			</array>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Title</key>
 			<string>Adaptive Bitrate</string>
 			<key>Key</key>
 			<string>enableAdaptiveBitrate</string>

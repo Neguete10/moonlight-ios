@@ -36,6 +36,8 @@
 @property int supportedVideoFormats;
 @property BOOL multiController;
 @property BOOL useFramePacing;
+@property BOOL enableMetalFX;
+@property BOOL enableHdr;
 @property NSData* serverCert;
 
 @end
