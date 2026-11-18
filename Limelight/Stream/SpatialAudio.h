@@ -7,6 +7,7 @@
 //  is what plays when it is off.
 //
 
+#import <AudioToolbox/AudioToolbox.h>
 #import <Foundation/Foundation.h>
 #import <stdint.h>
 
@@ -73,3 +74,20 @@ NSString *TwilightSpatialCurrentStatusLine(void);
 // Starts a short 5.1 stream on the current route. Used by the simulator
 // test. The simulator may not spatialize; a fallback line is a success.
 NSString *TwilightSpatialExerciseTestStream(void);
+
+// Copies planar stereo into the buffer list the output callback was given.
+// interleaved YES matches the RemoteIO format: one packed stereo buffer,
+// 8 bytes per frame. Only mBuffers[0] is touched. interleaved NO requires
+// exactly two mono buffers. A short or missing buffer writes nothing.
+BOOL TwilightSpatialRenderStereo(AudioBufferList *ioData,
+                                 UInt32 frames,
+                                 const float *left,
+                                 const float *right,
+                                 BOOL interleaved);
+
+// Copies interleaved float frames into one mono buffer per channel.
+// Writes nothing when the list is not that shape or any buffer is short.
+BOOL TwilightSpatialRenderDeinterleaved(AudioBufferList *ioData,
+                                        UInt32 frames,
+                                        UInt32 channels,
+                                        const float *interleaved);

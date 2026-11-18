@@ -262,6 +262,68 @@ void TwilightSpatialDownmixToStereo(const int16_t *interleaved,
     }
 }
 
+BOOL TwilightSpatialRenderStereo(AudioBufferList *ioData,
+                                 UInt32 frames,
+                                 const float *left,
+                                 const float *right,
+                                 BOOL interleaved) {
+    if (ioData == NULL || frames == 0 || left == NULL || right == NULL || ioData->mNumberBuffers == 0) {
+        return NO;
+    }
+    if (interleaved) {
+        // The output unit is packed stereo. Buffer 0 is the only storage.
+        AudioBuffer *buffer = &ioData->mBuffers[0];
+        uint64_t need = (uint64_t)frames * 2ull * sizeof(float);
+        if (buffer->mData == NULL || (uint64_t)buffer->mDataByteSize < need) {
+            return NO;
+        }
+        float *destination = (float *)buffer->mData;
+        for (UInt32 frame = 0; frame < frames; frame++) {
+            destination[frame * 2] = left[frame];
+            destination[frame * 2 + 1] = right[frame];
+        }
+        return YES;
+    }
+    if (ioData->mNumberBuffers != 2) {
+        return NO;
+    }
+    AudioBuffer *leftBuffer = &ioData->mBuffers[0];
+    AudioBuffer *rightBuffer = &ioData->mBuffers[1];
+    uint64_t need = (uint64_t)frames * sizeof(float);
+    if (leftBuffer->mNumberChannels > 1 || rightBuffer->mNumberChannels > 1 ||
+        leftBuffer->mData == NULL || rightBuffer->mData == NULL ||
+        (uint64_t)leftBuffer->mDataByteSize < need || (uint64_t)rightBuffer->mDataByteSize < need) {
+        return NO;
+    }
+    memcpy(leftBuffer->mData, left, (size_t)need);
+    memcpy(rightBuffer->mData, right, (size_t)need);
+    return YES;
+}
+
+BOOL TwilightSpatialRenderDeinterleaved(AudioBufferList *ioData,
+                                        UInt32 frames,
+                                        UInt32 channels,
+                                        const float *interleaved) {
+    if (ioData == NULL || interleaved == NULL || frames == 0 || channels == 0 || channels > 8 || ioData->mNumberBuffers != channels) {
+        return NO;
+    }
+    uint64_t need = (uint64_t)frames * sizeof(float);
+    for (UInt32 channel = 0; channel < channels; channel++) {
+        AudioBuffer *buffer = &ioData->mBuffers[channel];
+        if (buffer->mData == NULL || buffer->mNumberChannels > 1 || (uint64_t)buffer->mDataByteSize < need) {
+            return NO;
+        }
+    }
+    for (UInt32 frame = 0; frame < frames; frame++) {
+        const float *source = interleaved + (frame * channels);
+        for (UInt32 channel = 0; channel < channels; channel++) {
+            float *destination = (float *)ioData->mBuffers[channel].mData;
+            destination[frame] = source[channel];
+        }
+    }
+    return YES;
+}
+
 static void publishLayout(int channels) {
     atomic_store_explicit(&gLayoutRaw, (int)TwilightSpatialLayoutForChannelCount(channels), memory_order_relaxed);
 }
@@ -401,14 +463,34 @@ static BOOL ringWrite(const float *interleaved, uint32_t frames) {
     return YES;
 }
 
-static BOOL ringReadDeinterleaved(AudioBufferList *ioData, uint32_t frames) {
-    uint32_t write = atomic_load_explicit(&gWriteFrame, memory_order_acquire);
-    uint32_t read = atomic_load_explicit(&gReadFrame, memory_order_relaxed);
-    if (write - read < frames || gRing == NULL) {
+static BOOL monoBufferFits(const AudioBuffer *buffer, UInt32 frames) {
+    uint64_t need = (uint64_t)frames * sizeof(float);
+    return buffer != NULL && buffer->mData != NULL && buffer->mNumberChannels <= 1 && need > 0 && buffer->mDataByteSize >= need;
+}
+
+static BOOL deinterleavedListFits(const AudioBufferList *ioData, UInt32 frames, UInt32 channels) {
+    if (ioData == NULL || frames == 0 || channels == 0 || channels > 8) {
         return NO;
     }
+    if (ioData->mNumberBuffers != channels) {
+        return NO;
+    }
+    for (UInt32 channel = 0; channel < channels; channel++) {
+        if (!monoBufferFits(&ioData->mBuffers[channel], frames)) {
+            return NO;
+        }
+    }
+    return YES;
+}
+
+static BOOL ringReadDeinterleaved(AudioBufferList *ioData, uint32_t frames) {
     uint32_t channels = (uint32_t)gChannels;
-    if (ioData->mNumberBuffers < channels) {
+    if (!deinterleavedListFits(ioData, frames, channels) || gRing == NULL) {
+        return NO;
+    }
+    uint32_t write = atomic_load_explicit(&gWriteFrame, memory_order_acquire);
+    uint32_t read = atomic_load_explicit(&gReadFrame, memory_order_relaxed);
+    if (write - read < frames) {
         return NO;
     }
     for (uint32_t frame = 0; frame < frames; frame++) {
@@ -422,6 +504,39 @@ static BOOL ringReadDeinterleaved(AudioBufferList *ioData, uint32_t frames) {
     return YES;
 }
 
+static void silenceBytes(void *data, UInt32 size, UInt32 cap) {
+    if (data == NULL || size == 0) {
+        return;
+    }
+    if (size > cap) {
+        size = cap;
+    }
+    memset(data, 0, size);
+}
+
+static void silenceMixerBuffers(AudioBufferList *ioData) {
+    if (ioData == NULL) {
+        return;
+    }
+    // A wild mNumberBuffers must not walk off the list into sample memory.
+    UInt32 count = ioData->mNumberBuffers;
+    if (count > 8) {
+        count = 8;
+    }
+    UInt32 cap = kMaxSlice * (UInt32)sizeof(float);
+    for (UInt32 buffer = 0; buffer < count; buffer++) {
+        silenceBytes(ioData->mBuffers[buffer].mData, ioData->mBuffers[buffer].mDataByteSize, cap);
+    }
+}
+
+static void silenceOutputBuffer(AudioBufferList *ioData) {
+    if (ioData == NULL || ioData->mNumberBuffers < 1) {
+        return;
+    }
+    UInt32 cap = kMaxSlice * 2 * (UInt32)sizeof(float);
+    silenceBytes(ioData->mBuffers[0].mData, ioData->mBuffers[0].mDataByteSize, cap);
+}
+
 static OSStatus mixerInput(void *inRefCon,
                            AudioUnitRenderActionFlags *ioActionFlags,
                            const AudioTimeStamp *inTimestamp,
@@ -431,22 +546,25 @@ static OSStatus mixerInput(void *inRefCon,
     (void)inRefCon;
     (void)inTimestamp;
     (void)inBusNumber;
-    for (UInt32 buffer = 0; buffer < ioData->mNumberBuffers; buffer++) {
-        memset(ioData->mBuffers[buffer].mData, 0, inNumberFrames * sizeof(float));
-    }
-    if (!ringReadDeinterleaved(ioData, inNumberFrames)) {
+    BOOL fits = ioData != NULL && gChannels > 0 && inNumberFrames > 0 && inNumberFrames <= kMaxSlice &&
+        deinterleavedListFits(ioData, inNumberFrames, (UInt32)gChannels);
+    if (!fits) {
+        silenceMixerBuffers(ioData);
         if (ioActionFlags != NULL) {
             *ioActionFlags |= kAudioUnitRenderAction_OutputIsSilence;
         }
+        return noErr;
+    }
+    UInt32 bytes = inNumberFrames * (UInt32)sizeof(float);
+    for (UInt32 buffer = 0; buffer < ioData->mNumberBuffers; buffer++) {
+        if (ioData->mBuffers[buffer].mDataByteSize >= bytes) {
+            memset(ioData->mBuffers[buffer].mData, 0, bytes);
+        }
+    }
+    if (!ringReadDeinterleaved(ioData, inNumberFrames) && ioActionFlags != NULL) {
+        *ioActionFlags |= kAudioUnitRenderAction_OutputIsSilence;
     }
     return noErr;
-}
-
-static void silenceInterleaved(AudioBufferList *ioData, UInt32 frames) {
-    for (UInt32 buffer = 0; buffer < ioData->mNumberBuffers; buffer++) {
-        memset(ioData->mBuffers[buffer].mData, 0, ioData->mBuffers[buffer].mDataByteSize);
-    }
-    (void)frames;
 }
 
 static OSStatus outputRender(void *inRefCon,
@@ -457,8 +575,10 @@ static OSStatus outputRender(void *inRefCon,
                              AudioBufferList *ioData) {
     (void)inRefCon;
     (void)inBusNumber;
-    if (!atomic_load_explicit(&gRunning, memory_order_relaxed) || gMixer == NULL || gLeft == NULL || inNumberFrames > kMaxSlice) {
-        silenceInterleaved(ioData, inNumberFrames);
+    // RemoteIO is given interleaved stereo below, so this list has one
+    // buffer. Do not read mBuffers[1]; that slot is not part of the list.
+    if (!atomic_load_explicit(&gRunning, memory_order_relaxed) || gMixer == NULL || gLeft == NULL || gRight == NULL || inNumberFrames == 0 || inNumberFrames > kMaxSlice) {
+        silenceOutputBuffer(ioData);
         if (ioActionFlags != NULL) {
             *ioActionFlags |= kAudioUnitRenderAction_OutputIsSilence;
         }
@@ -476,23 +596,11 @@ static OSStatus outputRender(void *inRefCon,
 
     AudioUnitRenderActionFlags flags = 0;
     OSStatus status = AudioUnitRender(gMixer, &flags, inTimestamp, 0, inNumberFrames, &spatial);
-    if (status != noErr) {
-        silenceInterleaved(ioData, inNumberFrames);
-        return noErr;
-    }
-
-    if (ioData->mNumberBuffers >= 2 && ioData->mBuffers[0].mData != NULL && ioData->mBuffers[1].mData != NULL) {
-        memcpy(ioData->mBuffers[0].mData, gLeft, inNumberFrames * sizeof(float));
-        memcpy(ioData->mBuffers[1].mData, gRight, inNumberFrames * sizeof(float));
-        return noErr;
-    }
-    float *interleaved = (float *)ioData->mBuffers[0].mData;
-    if (interleaved == NULL) {
-        return noErr;
-    }
-    for (UInt32 frame = 0; frame < inNumberFrames; frame++) {
-        interleaved[frame * 2] = gLeft[frame];
-        interleaved[frame * 2 + 1] = gRight[frame];
+    if (status != noErr || !TwilightSpatialRenderStereo(ioData, inNumberFrames, gLeft, gRight, YES)) {
+        silenceOutputBuffer(ioData);
+        if (ioActionFlags != NULL) {
+            *ioActionFlags |= kAudioUnitRenderAction_OutputIsSilence;
+        }
     }
     return noErr;
 }
@@ -807,6 +915,7 @@ BOOL TwilightSpatialStart(int sampleRate, int channels, int samplesPerFrame, BOO
     memset(&outputFormat, 0, sizeof(outputFormat));
     outputFormat.mSampleRate = sampleRate;
     outputFormat.mFormatID = kAudioFormatLinearPCM;
+    // Packed stereo: 8 bytes per frame, one buffer in the render callback.
     outputFormat.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagsNativeEndian | kAudioFormatFlagIsPacked;
     outputFormat.mFramesPerPacket = 1;
     outputFormat.mChannelsPerFrame = 2;

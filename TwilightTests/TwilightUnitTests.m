@@ -17,6 +17,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <stdint.h>
+#import <string.h>
 
 @interface TwilightUnitTests : XCTestCase
 @end
@@ -310,6 +311,111 @@
 
     TwilightSpatialSetAudioEnabled(audio);
     TwilightSpatialSetHeadTrackingEnabled(head);
+}
+
+- (void)testSpatialRenderAcceptsInterleavedAndPlanarBuffers {
+    enum { frames = 4 };
+    float left[frames] = {0.25f, 0.5f, -0.25f, -1.0f};
+    float right[frames] = {1.0f, 0.0f, 0.5f, 0.125f};
+    float interleaved[frames * 2];
+    memset(interleaved, 0x5a, sizeof(interleaved));
+    uint8_t canary[32];
+    memset(canary, 0xab, sizeof(canary));
+
+    // RemoteIO's packed stereo list has one buffer. A second slot may sit
+    // next to it in memory; writing it is the device crash.
+    struct {
+        UInt32 mNumberBuffers;
+        AudioBuffer mBuffers[2];
+    } packed;
+    memset(&packed, 0, sizeof(packed));
+    packed.mNumberBuffers = 1;
+    packed.mBuffers[0].mNumberChannels = 2;
+    packed.mBuffers[0].mDataByteSize = sizeof(interleaved);
+    packed.mBuffers[0].mData = interleaved;
+    packed.mBuffers[1].mNumberChannels = 1;
+    packed.mBuffers[1].mDataByteSize = sizeof(canary);
+    packed.mBuffers[1].mData = canary;
+
+    XCTAssertTrue(TwilightSpatialRenderStereo((AudioBufferList *)&packed, frames, left, right, YES));
+    for (UInt32 frame = 0; frame < frames; frame++) {
+        XCTAssertEqualWithAccuracy(interleaved[frame * 2], left[frame], 0.0001f);
+        XCTAssertEqualWithAccuracy(interleaved[frame * 2 + 1], right[frame], 0.0001f);
+    }
+    uint8_t expectedCanary[32];
+    memset(expectedCanary, 0xab, sizeof(expectedCanary));
+    XCTAssertEqual(memcmp(canary, expectedCanary, sizeof(canary)), 0);
+
+    packed.mNumberBuffers = 2;
+    memset(interleaved, 0x5a, sizeof(interleaved));
+    XCTAssertTrue(TwilightSpatialRenderStereo((AudioBufferList *)&packed, frames, left, right, YES));
+    XCTAssertEqualWithAccuracy(interleaved[0], left[0], 0.0001f);
+    XCTAssertEqualWithAccuracy(interleaved[1], right[0], 0.0001f);
+    XCTAssertEqual(memcmp(canary, expectedCanary, sizeof(canary)), 0);
+
+    float saved = interleaved[0];
+    packed.mNumberBuffers = 1;
+    packed.mBuffers[0].mDataByteSize = sizeof(float);
+    XCTAssertFalse(TwilightSpatialRenderStereo((AudioBufferList *)&packed, frames, left, right, YES));
+    XCTAssertEqualWithAccuracy(interleaved[0], saved, 0.0001f);
+
+    float planarLeft[frames];
+    float planarRight[frames];
+    memset(planarLeft, 0x11, sizeof(planarLeft));
+    memset(planarRight, 0x22, sizeof(planarRight));
+    struct {
+        UInt32 mNumberBuffers;
+        AudioBuffer mBuffers[2];
+    } planar;
+    memset(&planar, 0, sizeof(planar));
+    planar.mNumberBuffers = 2;
+    planar.mBuffers[0].mNumberChannels = 1;
+    planar.mBuffers[0].mDataByteSize = sizeof(planarLeft);
+    planar.mBuffers[0].mData = planarLeft;
+    planar.mBuffers[1].mNumberChannels = 1;
+    planar.mBuffers[1].mDataByteSize = sizeof(planarRight);
+    planar.mBuffers[1].mData = planarRight;
+    XCTAssertTrue(TwilightSpatialRenderStereo((AudioBufferList *)&planar, frames, left, right, NO));
+    for (UInt32 frame = 0; frame < frames; frame++) {
+        XCTAssertEqualWithAccuracy(planarLeft[frame], left[frame], 0.0001f);
+        XCTAssertEqualWithAccuracy(planarRight[frame], right[frame], 0.0001f);
+    }
+
+    planar.mBuffers[1].mDataByteSize = sizeof(float);
+    float untouched = planarRight[1];
+    XCTAssertFalse(TwilightSpatialRenderStereo((AudioBufferList *)&planar, frames, left, right, NO));
+    XCTAssertEqualWithAccuracy(planarRight[1], untouched, 0.0001f);
+    planar.mBuffers[1].mData = NULL;
+    planar.mBuffers[1].mDataByteSize = sizeof(planarRight);
+    XCTAssertFalse(TwilightSpatialRenderStereo((AudioBufferList *)&planar, frames, left, right, NO));
+
+    float bed[] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f};
+    float channels[6][2];
+    memset(channels, 0, sizeof(channels));
+    struct {
+        UInt32 mNumberBuffers;
+        AudioBuffer mBuffers[6];
+    } mixer;
+    memset(&mixer, 0, sizeof(mixer));
+    mixer.mNumberBuffers = 6;
+    for (UInt32 channel = 0; channel < 6; channel++) {
+        mixer.mBuffers[channel].mNumberChannels = 1;
+        mixer.mBuffers[channel].mDataByteSize = sizeof(channels[channel]);
+        mixer.mBuffers[channel].mData = channels[channel];
+    }
+    XCTAssertTrue(TwilightSpatialRenderDeinterleaved((AudioBufferList *)&mixer, 2, 6, bed));
+    XCTAssertEqualWithAccuracy(channels[0][0], 1.0f, 0.0001f);
+    XCTAssertEqualWithAccuracy(channels[1][0], 2.0f, 0.0001f);
+    XCTAssertEqualWithAccuracy(channels[5][0], 6.0f, 0.0001f);
+    XCTAssertEqualWithAccuracy(channels[0][1], 7.0f, 0.0001f);
+    XCTAssertEqualWithAccuracy(channels[5][1], 12.0f, 0.0001f);
+    mixer.mNumberBuffers = 1;
+    XCTAssertFalse(TwilightSpatialRenderDeinterleaved((AudioBufferList *)&mixer, 2, 6, bed));
+    mixer.mNumberBuffers = 6;
+    mixer.mBuffers[3].mDataByteSize = sizeof(float);
+    float kept = channels[3][1];
+    XCTAssertFalse(TwilightSpatialRenderDeinterleaved((AudioBufferList *)&mixer, 2, 6, bed));
+    XCTAssertEqualWithAccuracy(channels[3][1], kept, 0.0001f);
 }
 
 @end
