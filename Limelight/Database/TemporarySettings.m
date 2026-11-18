@@ -8,6 +8,7 @@
 
 #import "TemporarySettings.h"
 #import "OnScreenControls.h"
+#import "SpatialAudio.h"
 #import "Utils.h"
 
 @implementation TemporarySettings
@@ -49,6 +50,8 @@
     self.enableAdaptiveBitrate = [[NSUserDefaults standardUserDefaults] boolForKey:@"enableAdaptiveBitrate"];
     self.enableMicrophone = NO;
     self.quitAppAfter = [[NSUserDefaults standardUserDefaults] boolForKey:@"quitAppAfter"];
+    self.spatialAudio = TwilightSpatialAudioEnabled();
+    self.spatialHeadTracking = TwilightSpatialHeadTrackingEnabled();
     
     NSInteger _screenSize = [[NSUserDefaults standardUserDefaults] integerForKey:@"streamResolution"];
     switch (_screenSize) {
@@ -92,6 +95,8 @@
     self.enableAdaptiveBitrate = settings.enableAdaptiveBitrate;
     self.enableMicrophone = settings.enableMicrophone;
     self.quitAppAfter = settings.quitAppAfter;
+    self.spatialAudio = TwilightSpatialAudioEnabled();
+    self.spatialHeadTracking = TwilightSpatialHeadTrackingEnabled();
 #endif
     if (self.preferredCodec == CODEC_PREF_AV1 && ![Utils av1HardwareDecodeSupported]) {
         // The tvOS settings bundle cannot hide a row per device. A stored AV1

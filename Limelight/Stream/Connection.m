@@ -7,6 +7,7 @@
 //
 
 #import "Connection.h"
+#import "SpatialAudio.h"
 #import "Utils.h"
 
 #import <VideoToolbox/VideoToolbox.h>
@@ -44,6 +45,9 @@ static SDL_AudioDeviceID audioDevice;
 static OPUS_MULTISTREAM_CONFIGURATION audioConfig;
 static void* audioBuffer;
 static int audioFrameSize;
+static int playbackFrameSize;
+static BOOL gDownmixToStereo;
+static int16_t *stereoScratch;
 
 static VideoDecoderRenderer* renderer;
 
@@ -225,20 +229,23 @@ int DrSubmitDecodeUnit(PDECODE_UNIT decodeUnit)
                              decodeUnit:decodeUnit];
 }
 
-int ArInit(int audioConfiguration, POPUS_MULTISTREAM_CONFIGURATION opusConfig, void* context, int flags)
+void ArCleanup(void);
+
+static int ArInitCore(POPUS_MULTISTREAM_CONFIGURATION opusConfig, int deviceChannels, BOOL downmix)
 {
     int err;
     SDL_AudioSpec want, have;
-    
+
+    gDownmixToStereo = downmix;
     if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
         Log(LOG_E, @"Failed to initialize audio subsystem: %s\n", SDL_GetError());
         return -1;
     }
-        
+
     SDL_zero(want);
     want.freq = opusConfig->sampleRate;
     want.format = AUDIO_S16;
-    want.channels = opusConfig->channelCount;
+    want.channels = deviceChannels;
     want.samples = opusConfig->samplesPerFrame;
 
     audioDevice = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
@@ -247,16 +254,25 @@ int ArInit(int audioConfiguration, POPUS_MULTISTREAM_CONFIGURATION opusConfig, v
         ArCleanup();
         return -1;
     }
-    
+
     audioConfig = *opusConfig;
     audioFrameSize = opusConfig->samplesPerFrame * sizeof(short) * opusConfig->channelCount;
+    playbackFrameSize = opusConfig->samplesPerFrame * sizeof(short) * deviceChannels;
     audioBuffer = SDL_malloc(audioFrameSize);
     if (audioBuffer == NULL) {
         Log(LOG_E, @"Failed to allocate audio frame buffer");
         ArCleanup();
         return -1;
     }
-    
+    if (downmix) {
+        stereoScratch = SDL_malloc(playbackFrameSize);
+        if (stereoScratch == NULL) {
+            Log(LOG_E, @"Failed to allocate stereo fold-down buffer");
+            ArCleanup();
+            return -1;
+        }
+    }
+
     opusDecoder = opus_multistream_decoder_create(opusConfig->sampleRate,
                                                   opusConfig->channelCount,
                                                   opusConfig->streams,
@@ -268,33 +284,106 @@ int ArInit(int audioConfiguration, POPUS_MULTISTREAM_CONFIGURATION opusConfig, v
         ArCleanup();
         return -1;
     }
-    
+
     // Start playback
     SDL_PauseAudioDevice(audioDevice, 0);
-    
+
     // Disable lowering volume of other audio streams (SDL sets AVAudioSessionCategoryOptionDuckOthers by default)
     [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback withOptions:AVAudioSessionCategoryOptionMixWithOthers error:nil];
-    
+
     return 0;
+}
+
+static int ArInitSpatialDecoder(POPUS_MULTISTREAM_CONFIGURATION opusConfig)
+{
+    int err;
+
+    gDownmixToStereo = NO;
+    audioConfig = *opusConfig;
+    audioFrameSize = opusConfig->samplesPerFrame * sizeof(short) * opusConfig->channelCount;
+    playbackFrameSize = audioFrameSize;
+    audioBuffer = SDL_malloc(audioFrameSize);
+    if (audioBuffer == NULL) {
+        Log(LOG_E, @"Failed to allocate audio frame buffer");
+        ArCleanup();
+        return -1;
+    }
+
+    opusDecoder = opus_multistream_decoder_create(opusConfig->sampleRate,
+                                                  opusConfig->channelCount,
+                                                  opusConfig->streams,
+                                                  opusConfig->coupledStreams,
+                                                  opusConfig->mapping,
+                                                  &err);
+    if (opusDecoder == NULL) {
+        Log(LOG_E, @"Failed to create Opus decoder");
+        ArCleanup();
+        return -1;
+    }
+    return 0;
+}
+
+int ArInit(int audioConfiguration, POPUS_MULTISTREAM_CONFIGURATION opusConfig, void* context, int flags)
+{
+    // Spatial audio is off unless the user turns it on. This branch is the
+    // existing SDL playback, including its channel count and session category.
+    if (!TwilightSpatialAudioEnabled() || opusConfig->channelCount < 6) {
+        return ArInitCore(opusConfig, opusConfig->channelCount, NO);
+    }
+
+    TwilightSpatialRouteKind route = TwilightSpatialCurrentRouteKind();
+    if (route != TwilightSpatialRouteExternal &&
+        TwilightSpatialStart(opusConfig->sampleRate,
+                             opusConfig->channelCount,
+                             opusConfig->samplesPerFrame,
+                             TwilightSpatialHeadTrackingEnabled())) {
+        return ArInitSpatialDecoder(opusConfig);
+    }
+
+    int opened = ArInitCore(opusConfig, opusConfig->channelCount, NO);
+    if (opened == 0) {
+        if (route == TwilightSpatialRouteExternal) {
+            TwilightSpatialNotePassthrough(opusConfig->channelCount);
+        }
+        else {
+            TwilightSpatialNoteDownmix(opusConfig->channelCount);
+        }
+        return 0;
+    }
+
+    Log(LOG_W, @"Surround playback was not available; folding down to stereo");
+    int folded = ArInitCore(opusConfig, 2, YES);
+    if (folded == 0) {
+        TwilightSpatialNoteDownmix(opusConfig->channelCount);
+    }
+    return folded;
 }
 
 void ArCleanup(void)
 {
+    TwilightSpatialStop();
+
     if (opusDecoder != NULL) {
         opus_multistream_decoder_destroy(opusDecoder);
         opusDecoder = NULL;
     }
-    
+
     if (audioDevice != 0) {
         SDL_CloseAudioDevice(audioDevice);
         audioDevice = 0;
     }
-    
+
     if (audioBuffer != NULL) {
         SDL_free(audioBuffer);
         audioBuffer = NULL;
     }
-    
+
+    if (stereoScratch != NULL) {
+        SDL_free(stereoScratch);
+        stereoScratch = NULL;
+    }
+    gDownmixToStereo = NO;
+
     SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
@@ -311,6 +400,22 @@ void ArDecodeAndPlaySample(char* sampleData, int sampleLength)
     decodeLen = opus_multistream_decode(opusDecoder, (unsigned char *)sampleData, sampleLength,
                                         (short*)audioBuffer, audioConfig.samplesPerFrame, 0);
     if (decodeLen > 0) {
+        if (TwilightSpatialIsActive()) {
+            TwilightSpatialSubmitS16((const int16_t *)audioBuffer, decodeLen, audioConfig.channelCount);
+            return;
+        }
+
+        if (gDownmixToStereo && stereoScratch != NULL) {
+            TwilightSpatialDownmixToStereo((const int16_t *)audioBuffer, decodeLen, audioConfig.channelCount, stereoScratch);
+            while (playbackFrameSize > 0 && SDL_GetQueuedAudioSize(audioDevice) / playbackFrameSize > 10) {
+                SDL_Delay(1);
+            }
+            if (SDL_QueueAudio(audioDevice, stereoScratch, sizeof(short) * decodeLen * 2) < 0) {
+                Log(LOG_E, @"Failed to queue audio sample: %s\n", SDL_GetError());
+            }
+            return;
+        }
+
         // Provide backpressure on the queue to ensure too many frames don't build up
         // in SDL's audio queue.
         while (SDL_GetQueuedAudioSize(audioDevice) / audioFrameSize > 10) {

@@ -37,6 +37,8 @@
 @property (nonatomic) BOOL enableAdaptiveBitrate;
 @property (nonatomic) BOOL enableMicrophone;
 @property (nonatomic) BOOL quitAppAfter;
+@property (nonatomic) BOOL spatialAudio;
+@property (nonatomic) BOOL spatialHeadTracking;
 
 - (id) initFromSettings:(Settings*)settings;
 

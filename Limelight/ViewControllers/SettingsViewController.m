@@ -13,6 +13,7 @@
 #import "Utils.h"
 #import "TwilightTheme.h"
 #import "StreamVideoLayout.h"
+#import "SpatialAudio.h"
 #import "Utils.h"
 
 #import <VideoToolbox/VideoToolbox.h>
@@ -134,6 +135,9 @@
             UIButton *button = _buttons[index];
             CGFloat buttonWidth = MIN(width, naturals[index].doubleValue + share);
             button.frame = CGRectMake(x, y, buttonWidth, rowH);
+            if (_control.accessibilityIdentifier.length > 0) {
+                button.accessibilityIdentifier = [NSString stringWithFormat:@"%@.%ld", _control.accessibilityIdentifier, (long)index];
+            }
             x += buttonWidth + gap;
             BOOL selected = _control.selectedSegmentIndex == index;
             BOOL segmentEnabled = enabled && [_control isEnabledForSegmentAtIndex:index];
@@ -172,6 +176,8 @@
     UISegmentedControl *_adaptiveBitrateSelector;
     UISegmentedControl *_microphoneSelector;
     UISegmentedControl *_quitAppAfterSelector;
+    UISegmentedControl *_spatialAudioSelector;
+    UISegmentedControl *_spatialHeadTrackingSelector;
     UILabel *_versionLabel;
     NSArray<UIView *> *_settingsRows;
     BOOL _settingsReady;
@@ -585,7 +591,20 @@ BOOL isCustomResolution(CGSize res) {
         _microphoneSelector = [self addYesNoControlTitled:@"Microphone Passthrough" below:_adaptiveBitrateSelector];
         [_microphoneSelector setSelectedSegmentIndex:currentSettings.enableMicrophone ? 1 : 0];
 #endif
-        UIView *quitAnchor = _microphoneSelector != nil ? _microphoneSelector : _adaptiveBitrateSelector;
+        UIView *audioAnchor = _microphoneSelector != nil ? _microphoneSelector : _adaptiveBitrateSelector;
+        _spatialAudioSelector = [self addYesNoControlTitled:@"Spatial Audio"
+                                                   subtitle:@"Renders a 5.1 or 7.1 stream on headphones and the built-in speakers."
+                                                      below:audioAnchor];
+        _spatialAudioSelector.accessibilityIdentifier = @"twilight.spatialAudio";
+        [_spatialAudioSelector setSelectedSegmentIndex:currentSettings.spatialAudio ? 1 : 0];
+        [_spatialAudioSelector addTarget:self action:@selector(spatialAudioChanged) forControlEvents:UIControlEventValueChanged];
+        _spatialHeadTrackingSelector = [self addYesNoControlTitled:@"Head Tracking"
+                                                          subtitle:@"Turns with supported headphones when the device allows it."
+                                                             below:_spatialAudioSelector];
+        _spatialHeadTrackingSelector.accessibilityIdentifier = @"twilight.spatialHeadTracking";
+        [_spatialHeadTrackingSelector setSelectedSegmentIndex:currentSettings.spatialHeadTracking ? 1 : 0];
+        _spatialHeadTrackingSelector.enabled = currentSettings.spatialAudio;
+        UIView *quitAnchor = _spatialHeadTrackingSelector;
         _quitAppAfterSelector = [self addYesNoControlTitled:@"Quit App on Host"
                                                    subtitle:@"When you end the stream. Unsaved progress on the host will be lost."
                                                       below:quitAnchor];
@@ -653,6 +672,12 @@ BOOL isCustomResolution(CGSize res) {
             return;
         }
     }
+}
+
+- (void)spatialAudioChanged {
+    BOOL on = [_spatialAudioSelector selectedSegmentIndex] == 1;
+    _spatialHeadTrackingSelector.enabled = on;
+    [self.view setNeedsLayout];
 }
 
 - (void) touchModeChanged {
@@ -1014,6 +1039,10 @@ BOOL isCustomResolution(CGSize res) {
     BOOL enableAdaptiveBitrate = [_adaptiveBitrateSelector selectedSegmentIndex] == 1;
     BOOL enableMicrophone = [_microphoneSelector selectedSegmentIndex] == 1;
     BOOL quitAppAfter = [_quitAppAfterSelector selectedSegmentIndex] == 1;
+    if (_spatialAudioSelector != nil) {
+        TwilightSpatialSetAudioEnabled([_spatialAudioSelector selectedSegmentIndex] == 1);
+        TwilightSpatialSetHeadTrackingEnabled([_spatialHeadTrackingSelector selectedSegmentIndex] == 1);
+    }
     [dataMan saveSettingsWithBitrate:_bitrate
                            framerate:framerate
                               height:height

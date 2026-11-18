@@ -10,6 +10,7 @@
 #import "MainFrameViewController.h"
 #import "VideoDecoderRenderer.h"
 #import "StreamManager.h"
+#import "SpatialAudio.h"
 #import "ControllerSupport.h"
 #import "DataManager.h"
 #import "AdaptiveBitrate.h"
@@ -150,7 +151,7 @@
         return NO;
     }
     NSString *which = [NSString stringWithUTF8String:mode];
-    return [which isEqualToString:@"stream"] || [which isEqualToString:@"keyboard"];
+    return [which isEqualToString:@"stream"] || [which isEqualToString:@"keyboard"] || [which isEqualToString:@"spatial"];
 #else
     return NO;
 #endif
@@ -184,6 +185,19 @@
     [self layoutStreamSurface];
     [_streamView setNeedsLayout];
     [_streamView layoutIfNeeded];
+
+    const char *mode = getenv("TWILIGHT_UITEST");
+    if (mode != NULL && [[NSString stringWithUTF8String:mode] isEqualToString:@"spatial"]) {
+        NSString *line = TwilightSpatialExerciseTestStream();
+        UILabel *status = [[UILabel alloc] initWithFrame:CGRectMake(16, 16, 280, 64)];
+        status.accessibilityIdentifier = @"twilight.spatial.status";
+        status.text = line;
+        status.numberOfLines = 2;
+        status.textColor = [TwilightTheme ink];
+        status.backgroundColor = [TwilightTheme glass];
+        status.font = [TwilightTheme fontForStyle:UIFontTextStyleFootnote weight:UIFontWeightSemibold];
+        [self.view addSubview:status];
+    }
 }
 
 - (void)installScreenshotStreamChrome {
@@ -409,6 +423,7 @@
     NSString *bitrate = nil;
     NSString *rtt = nil;
     [self->_streamMan getHudMetricsFps:&fps bitrate:&bitrate rtt:&rtt];
+    NSString *overlay = [self->_streamMan getStatsOverlayText];
     dispatch_async(dispatch_get_main_queue(), ^{
         if (self->_hudBar == nil) {
             self->_hudBar = [[TwilightHudBar alloc] initWithFrame:CGRectMake(0, 0, 420, 44)];
@@ -420,6 +435,8 @@
         }
         [self->_hudBar setFps:fps bitrate:bitrate rtt:rtt];
         [self layoutHudBar];
+        [self updateOverlayText:overlay];
+        [self.view bringSubviewToFront:self->_overlayView];
         [self.view bringSubviewToFront:self->_hudBar];
     });
 }
@@ -526,7 +543,11 @@
         }
         frame.origin.x = insets.left + (self.view.bounds.size.width - insets.left - insets.right - frame.size.width) / 2.0;
         frame.origin.y = insets.top + 8;
+        if (_hudBar != nil) {
+            frame.origin.y = CGRectGetMaxY(_hudBar.frame) + 8;
+        }
         _overlayView.frame = frame;
+        _overlayView.accessibilityIdentifier = @"twilight.stats";
         [_overlayView setHidden:NO];
     }
     else {

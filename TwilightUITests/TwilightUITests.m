@@ -214,10 +214,27 @@
 }
 
 - (BOOL)logContains:(NSString *)needle within:(NSTimeInterval)timeout {
-    XCUIElement *log = [self keyLog];
-    NSPredicate *predicate = [NSPredicate predicateWithFormat:@"label CONTAINS %@", needle];
-    XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc] initWithPredicate:predicate object:log];
-    return [XCTWaiter waitForExpectations:@[expectation] timeout:timeout] == XCTWaiterResultCompleted;
+    // A predicate on XCUIElement.label does not observe accessibilityLabel
+    // updates, so a line that is already on screen can still time out.
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
+    do {
+        XCUIElement *log = [self keyLog];
+        if (log.exists) {
+            NSString *label = log.label ?: @"";
+            NSString *value = @"";
+            if (log.value != nil && ![log.value isKindOfClass:[NSNull class]]) {
+                value = [log.value description];
+            }
+            if ([label containsString:needle] || [value containsString:needle]) {
+                return YES;
+            }
+        }
+        if ([deadline timeIntervalSinceNow] <= 0) {
+            break;
+        }
+        [self spinFor:0.25];
+    } while ([deadline timeIntervalSinceNow] > 0);
+    return NO;
 }
 
 - (void)tapIdentifier:(NSString *)identifier expecting:(NSString *)needle {
@@ -307,6 +324,66 @@
     XCTNSPredicateExpectation *dismissed = [[XCTNSPredicateExpectation alloc] initWithPredicate:gone object:keyboard];
     XCTAssertEqual([XCTWaiter waitForExpectations:@[dismissed] timeout:8], XCTWaiterResultCompleted, @"Done did not resign first responder");
     [self saveShot:@"keyboard-dismissed"];
+}
+
+- (BOOL)controlFrame:(CGRect)frame fitsWindow:(CGRect)window {
+    CGRect allowed = CGRectInset(window, -3, -3);
+    return frame.size.width > 8 && frame.size.height > 8 && CGRectContainsRect(allowed, frame);
+}
+
+- (void)scrollSettingsUntilHittable:(NSString *)identifier {
+    XCUIElement *settings = [self waitForIdentifier:@"twilight.settings" timeout:4];
+    XCUIElement *button = self.app.buttons[identifier];
+    XCTAssertTrue([button waitForExistenceWithTimeout:4], @"Missing %@", identifier);
+    // isHittable is true when a sliver of the control is inside the window.
+    // Keep scrolling until the whole control is on screen, then tap.
+    for (NSInteger i = 0; i < 16; i++) {
+        CGRect frame = button.frame;
+        CGRect window = [self windowFrame];
+        if (button.isHittable && [self controlFrame:frame fitsWindow:window]) {
+            return;
+        }
+        if (CGRectGetMinY(frame) < CGRectGetMinY(window) + 4) {
+            [settings swipeDown];
+        } else {
+            [settings swipeUp];
+        }
+        [self spinFor:0.35];
+    }
+    CGRect frame = button.frame;
+    CGRect window = [self windowFrame];
+    XCTAssertTrue(button.isHittable && [self controlFrame:frame fitsWindow:window],
+                  @"%@ frame %@ is outside window %@", identifier, NSStringFromCGRect(frame), NSStringFromCGRect(window));
+}
+
+- (void)testSpatialAudioToggleStartsStreamWithoutCrashing {
+    [self launchMode:@"spatial"];
+    [self scrollSettingsUntilHittable:@"twilight.spatialAudio.1"];
+    [self tapIdentifier:@"twilight.spatialAudio.1"];
+    [self spinFor:0.3];
+    [self scrollSettingsUntilHittable:@"twilight.spatialHeadTracking.1"];
+    XCUIElement *head = self.app.buttons[@"twilight.spatialHeadTracking.1"];
+    if (head.exists && head.isHittable) {
+        [self tapIdentifier:@"twilight.spatialHeadTracking.1"];
+    }
+
+    XCUIElement *done = self.app.navigationBars[@"Settings"].buttons[@"Done"];
+    if (!done.exists) {
+        done = self.app.buttons[@"Done"];
+    }
+    XCTAssertTrue([done waitForExistenceWithTimeout:2], @"Settings Done button is missing");
+    [done tap];
+
+    [[XCUIDevice sharedDevice] setOrientation:UIDeviceOrientationLandscapeLeft];
+    [self assertVideoSettled];
+    XCUIElement *status = [self waitForIdentifier:@"twilight.spatial.status" timeout:6];
+    NSString *line = status.label.length > 0 ? status.label : [status.value description];
+    // The simulator often cannot run the spatial mixer. Either result means
+    // the stream started and playback fell back instead of crashing.
+    XCTAssertTrue([line containsString:@"Spatial audio"], @"Spatial status: %@", line);
+    XCTAssertTrue([line containsString:@"active"] || [line containsString:@"fallback"] || [line containsString:@"passthrough"],
+                  @"Spatial status: %@", line);
+    [self saveShot:@"spatial-audio"];
 }
 
 @end
