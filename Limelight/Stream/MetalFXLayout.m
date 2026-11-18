@@ -165,6 +165,32 @@
     return [NSString stringWithFormat:@"%@ drop %ld", timed, (long)droppedFrames];
 }
 
++ (NSString *)statsLine:(NSString *)line
+       appendingTotalMs:(double)totalMs
+                queueMs:(double)queueMs
+              textureMs:(double)textureMs
+                  yuvMs:(double)yuvMs
+               scalerMs:(double)scalerMs
+             drawableMs:(double)drawableMs
+                  gpuMs:(double)gpuMs
+               presentMs:(double)presentMs
+          droppedFrames:(NSInteger)droppedFrames {
+    if (line.length == 0 || totalMs < 0) {
+        return line ?: @"";
+    }
+    double commitMs = totalMs - presentMs;
+    if (commitMs < 0) {
+        commitMs = 0;
+    }
+    NSString *timed = [NSString stringWithFormat:
+                       @"%@ +%.1f ms commit %.1f queue %.1f texture %.1f yuv %.1f scaler %.1f drawable %.1f gpu %.1f present %.1f",
+                       line, totalMs, commitMs, queueMs, textureMs, yuvMs, scalerMs, drawableMs, gpuMs, presentMs];
+    if (droppedFrames < 0) {
+        return timed;
+    }
+    return [NSString stringWithFormat:@"%@ drop %ld", timed, (long)droppedFrames];
+}
+
 + (NSString *)dominantStageNameForQueueMs:(double)queueMs
                                  textureMs:(double)textureMs
                                      yuvMs:(double)yuvMs

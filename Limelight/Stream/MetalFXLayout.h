@@ -75,6 +75,18 @@ typedef NS_ENUM(NSInteger, MetalFXStatsMode) {
                   stage:(nullable NSString *)stage
           droppedFrames:(NSInteger)droppedFrames;
 
+/// Decode-to-present total, then each measured stage. commit is decode-to-presentDrawable.
++ (NSString *)statsLine:(NSString *)line
+       appendingTotalMs:(double)totalMs
+                queueMs:(double)queueMs
+              textureMs:(double)textureMs
+                  yuvMs:(double)yuvMs
+               scalerMs:(double)scalerMs
+             drawableMs:(double)drawableMs
+                  gpuMs:(double)gpuMs
+               presentMs:(double)presentMs
+          droppedFrames:(NSInteger)droppedFrames;
+
 /// Name of the largest stage. Equal values keep the earlier name.
 + (NSString *)dominantStageNameForQueueMs:(double)queueMs
                                  textureMs:(double)textureMs
