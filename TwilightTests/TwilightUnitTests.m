@@ -329,6 +329,17 @@
     XCTAssertEqualObjects(staged, @"MetalFX active 1280x720 -> 2334x1206 +73.2 ms drawable");
     NSString *dropped = [MetalFXLayout statsLine:@"MetalFX active 1280x720 -> 2334x1206" appendingLatencyMs:8.2 stage:@"present" droppedFrames:12];
     XCTAssertEqualObjects(dropped, @"MetalFX active 1280x720 -> 2334x1206 +8.2 ms present drop 12");
+    NSString *split = [MetalFXLayout statsLine:@"MetalFX active 1280x720 -> 2144x1206"
+                              appendingTotalMs:74.2
+                                       queueMs:0.2
+                                     textureMs:0.4
+                                         yuvMs:0.1
+                                      scalerMs:0.3
+                                    drawableMs:1.0
+                                         gpuMs:2.1
+                                      presentMs:70.0
+                                 droppedFrames:235];
+    XCTAssertEqualObjects(split, @"MetalFX active 1280x720 -> 2144x1206 +74.2 ms commit 4.2 queue 0.2 texture 0.4 yuv 0.1 scaler 0.3 drawable 1.0 gpu 2.1 present 70.0 drop 235");
     XCTAssertEqualObjects([MetalFXLayout dominantStageNameForQueueMs:0.4
                                                             textureMs:0.2
                                                                 yuvMs:0.3

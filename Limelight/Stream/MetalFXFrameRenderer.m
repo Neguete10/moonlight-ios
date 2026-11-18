@@ -13,6 +13,7 @@
 #import "StreamVideoLayout.h"
 
 #import <Metal/Metal.h>
+#import <objc/message.h>
 // The simulator SDK does not ship MetalFX.framework. Device SDKs do.
 // The stream always falls back to AVSampleBufferDisplayLayer when this is 0.
 #if !TARGET_OS_SIMULATOR && __has_include(<MetalFX/MetalFX.h>)
@@ -402,10 +403,11 @@ static NSString *gStatsLine;
     _layer.framebufferOnly = YES;
     _layer.opaque = YES;
     _layer.backgroundColor = [UIColor blackColor].CGColor;
-    // One present is in flight. The second drawable lets nextDrawable return
-    // immediately instead of waiting out a vsync when the pool is full.
-    _layer.maximumDrawableCount = 2;
+    // One present is scheduled at a time. A third drawable keeps nextDrawable
+    // from blocking when the one on screen has not been returned yet.
+    _layer.maximumDrawableCount = 3;
     _layer.presentsWithTransaction = NO;
+    [self lockLayerToScreenRate];
 #if !TARGET_OS_TV
     if (@available(iOS 18.0, *)) {
         _layer.allowsNextDrawableTimeout = YES;
@@ -419,7 +421,9 @@ static NSString *gStatsLine;
     if (_hdr) {
         if (@available(iOS 16.0, tvOS 16.0, *)) {
 #if !TARGET_OS_TV
-            // Marked unavailable on tvOS. The colorspace below still requests an extended range.
+            // 10-bit frames are converted to linear light for the HDR scaler.
+            // The extended-range flag matches that. It is not the present wait:
+            // that wait is the layer's refresh interval, printed as "present".
             _layer.wantsExtendedDynamicRangeContent = YES;
 #endif
             CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearITUR_2020);
@@ -470,10 +474,40 @@ static NSString *gStatsLine;
     [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
 }
 
+- (void)lockLayerToScreenRate {
+    if (_layer == nil) {
+        return;
+    }
+    // ProMotion otherwise treats the layer as idle UI and drops to about
+    // 10–24 Hz. A present then waits tens of milliseconds for the next tick.
+    float maxRate = 60.0f;
+    UIScreen *screen = _view.window.screen;
+    if (screen == nil) {
+        screen = UIScreen.mainScreen;
+    }
+    if (@available(iOS 10.3, tvOS 10.3, *)) {
+        if (screen.maximumFramesPerSecond >= 60) {
+            maxRate = (float)screen.maximumFramesPerSecond;
+        }
+    }
+    if (@available(iOS 15.0, tvOS 15.0, *)) {
+        CAFrameRateRange range = CAFrameRateRangeMake(maxRate, maxRate, maxRate);
+        _layer.preferredFrameRateRange = range;
+        _view.layer.preferredFrameRateRange = range;
+    }
+    // Stay on the display clock now that the clock is the panel's maximum.
+    // Turning sync off presents early and can tear or stall drawable reuse.
+    SEL displaySync = NSSelectorFromString(@"setDisplaySyncEnabled:");
+    if ([_layer respondsToSelector:displaySync]) {
+        ((void (*)(id, SEL, BOOL))objc_msgSend)(_layer, displaySync, YES);
+    }
+}
+
 - (void)syncLayerToView {
     if (_layer == nil || _view == nil) {
         return;
     }
+    [self lockLayerToScreenRate];
     CGFloat scale = 0;
     if (_view.window.screen != nil) {
         scale = _view.window.screen.scale;
@@ -720,7 +754,17 @@ static NSString *gStatsLine;
                                                input:CGSizeMake(_publishedW, _publishedH)
                                               output:CGSizeMake(_publishedOutW, _publishedOutH)];
     NSInteger dropped = (NSInteger)__atomic_load_n(&_droppedFrames, __ATOMIC_RELAXED);
-    NSString *line = [MetalFXLayout statsLine:base appendingLatencyMs:_emaTotal stage:stage droppedFrames:dropped];
+    NSString *line = [MetalFXLayout statsLine:base
+                              appendingTotalMs:_emaTotal
+                                       queueMs:_emaQueue
+                                     textureMs:_emaTexture
+                                         yuvMs:_emaYuv
+                                      scalerMs:_emaScaler
+                                    drawableMs:_emaDrawable
+                                         gpuMs:_emaGpu
+                                      presentMs:_emaPresent
+                                 droppedFrames:dropped];
+    (void)stage;
     _droppedPublished = (NSUInteger)dropped;
     [MetalFXFrameRenderer publishStatsLine:line];
     Log(LOG_I, @"%@ (queue %.1f texture %.1f yuv %.1f scaler %.1f drawable %.1f gpu %.1f present %.1f)",
@@ -955,7 +999,7 @@ static NSString *gStatsLine;
     }
     MetalFXTiming *presentedTiming = timing;
 #if TWILIGHT_HAS_METALFX
-    // The simulator Metal headers do not declare these. Device builds do.
+    // The simulator Metal headers do not declare addPresentedHandler:.
     [drawable addPresentedHandler:^(id<MTLDrawable> presented) {
         (void)presented;
         CFTimeInterval shownAt = CACurrentMediaTime();
@@ -963,11 +1007,12 @@ static NSString *gStatsLine;
             [self recordTiming:presentedTiming presentedAt:shownAt];
         });
     }];
-    [presentBuffer presentDrawable:drawable afterMinimumDuration:0];
 #else
     (void)presentedTiming;
-    [presentBuffer presentDrawable:drawable];
 #endif
+    // Plain present. afterMinimumDuration schedules an extra display interval
+    // on ProMotion even when the duration is zero.
+    [presentBuffer presentDrawable:drawable];
     MetalFXSlot *finished = slot;
     [presentBuffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
         dispatch_async(self->_renderQueue, ^{
