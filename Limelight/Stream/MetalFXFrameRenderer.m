@@ -887,6 +887,8 @@ static NSString *gStatsLine;
         timing.presentCommit = CACurrentMediaTime();
     }
     MetalFXTiming *presentedTiming = timing;
+#if TWILIGHT_HAS_METALFX
+    // The simulator Metal headers do not declare these. Device builds do.
     [drawable addPresentedHandler:^(id<MTLDrawable> presented) {
         (void)presented;
         CFTimeInterval shownAt = CACurrentMediaTime();
@@ -895,6 +897,10 @@ static NSString *gStatsLine;
         });
     }];
     [presentBuffer presentDrawable:drawable afterMinimumDuration:0];
+#else
+    (void)presentedTiming;
+    [presentBuffer presentDrawable:drawable];
+#endif
     MetalFXSlot *finished = slot;
     [presentBuffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
         dispatch_async(self->_renderQueue, ^{
