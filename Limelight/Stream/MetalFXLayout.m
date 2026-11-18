@@ -202,10 +202,126 @@
 }
 
 + (NSString *)statsLine:(NSString *)line appendingLatencyMs:(double)latencyMs {
+    return [self statsLine:line appendingLatencyMs:latencyMs stage:nil];
+}
+
++ (NSString *)statsLine:(NSString *)line appendingLatencyMs:(double)latencyMs stage:(NSString *)stage {
     if (line.length == 0 || latencyMs < 0) {
         return line ?: @"";
     }
-    return [NSString stringWithFormat:@"%@ +%.1f ms", line, latencyMs];
+    if (stage.length == 0) {
+        return [NSString stringWithFormat:@"%@ +%.1f ms", line, latencyMs];
+    }
+    return [NSString stringWithFormat:@"%@ +%.1f ms %@", line, latencyMs, stage];
+}
+
++ (NSString *)dominantStageNameForQueueMs:(double)queueMs
+                                 textureMs:(double)textureMs
+                                     yuvMs:(double)yuvMs
+                                  scalerMs:(double)scalerMs
+                                drawableMs:(double)drawableMs
+                                     gpuMs:(double)gpuMs
+                                  presentMs:(double)presentMs {
+    NSString *name = @"queue";
+    double best = queueMs;
+    if (textureMs > best) { best = textureMs; name = @"texture"; }
+    if (yuvMs > best) { best = yuvMs; name = @"yuv"; }
+    if (scalerMs > best) { best = scalerMs; name = @"scaler"; }
+    if (drawableMs > best) { best = drawableMs; name = @"drawable"; }
+    if (gpuMs > best) { best = gpuMs; name = @"gpu"; }
+    if (presentMs > best) { name = @"present"; }
+    return name;
+}
+
+@end
+
+@implementation MetalFXFrameSchedule {
+    NSLock *_lock;
+    uint64_t _pending;
+    BOOL _presenting;
+    NSUInteger _submitted;
+    NSUInteger _dropped;
+    NSUInteger _presented;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self != nil) {
+        _lock = [[NSLock alloc] init];
+    }
+    return self;
+}
+
+- (uint64_t)submitFrame:(uint64_t)frameId {
+    if (frameId == 0) {
+        return 0;
+    }
+    [_lock lock];
+    _submitted++;
+    uint64_t dropped = _pending;
+    if (dropped != 0) {
+        _dropped++;
+    }
+    _pending = frameId;
+    [_lock unlock];
+    return dropped;
+}
+
+- (uint64_t)beginPresent {
+    [_lock lock];
+    uint64_t frame = 0;
+    if (!_presenting && _pending != 0) {
+        frame = _pending;
+        _pending = 0;
+        _presenting = YES;
+        _presented++;
+    }
+    [_lock unlock];
+    return frame;
+}
+
+- (BOOL)tryBeginPresent {
+    [_lock lock];
+    BOOL ok = !_presenting;
+    if (ok) {
+        _presenting = YES;
+    }
+    [_lock unlock];
+    return ok;
+}
+
+- (void)endPresent {
+    [_lock lock];
+    _presenting = NO;
+    [_lock unlock];
+}
+
+- (NSUInteger)submittedFrames {
+    [_lock lock];
+    NSUInteger value = _submitted;
+    [_lock unlock];
+    return value;
+}
+
+- (NSUInteger)droppedFrames {
+    [_lock lock];
+    NSUInteger value = _dropped;
+    [_lock unlock];
+    return value;
+}
+
+- (NSUInteger)presentedFrames {
+    [_lock lock];
+    NSUInteger value = _presented;
+    [_lock unlock];
+    return value;
+}
+
+- (BOOL)presentInFlight {
+    [_lock lock];
+    BOOL value = _presenting;
+    [_lock unlock];
+    return value;
 }
 
 @end

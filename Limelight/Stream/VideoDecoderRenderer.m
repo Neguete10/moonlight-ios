@@ -61,6 +61,7 @@ static void MetalFXDecompressionCallback(void *decompressionOutputRefCon,
 
     MetalFXFrameRenderer *_metalRenderer;
     NSThread *_metalPumpThread;
+    NSLock *_metalSessionLock;
     volatile BOOL _metalPumpStop;
     VTDecompressionSessionRef _decompressionSession;
     CMVideoFormatDescriptionRef _sessionFormat;
@@ -132,6 +133,7 @@ static void MetalFXDecompressionCallback(void *decompressionOutputRefCon,
     _callbacks = callbacks;
     _streamAspectRatio = aspectRatio;
     framePacing = useFramePacing;
+    _metalSessionLock = [[NSLock alloc] init];
     
     parameterSetBuffers = [[NSMutableArray alloc] init];
 
@@ -209,8 +211,19 @@ static void MetalFXDecompressionCallback(void *decompressionOutputRefCon,
     if (thread == nil || [NSThread currentThread] == thread) {
         return;
     }
-    for (int i = 0; i < 50 && !thread.isFinished; i++) {
-        usleep(200);
+    // Service the main run loop while waiting. A present only returns its
+    // drawable there, and the pump may be blocked inside VideoToolbox until
+    // that drawable (and its pixel buffer) comes back.
+    for (int i = 0; i < 2000 && !thread.isFinished; i++) {
+        if ([NSThread isMainThread]) {
+            [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.001]];
+        }
+        else {
+            usleep(1000);
+        }
+    }
+    if (!thread.isFinished) {
+        Log(LOG_W, @"MetalFX frame pump was still running when the decoder stopped");
     }
     _metalPumpThread = nil;
 }
@@ -280,6 +293,7 @@ int DrSubmitDecodeUnit(PDECODE_UNIT decodeUnit);
 }
 
 - (void)teardownMetalDecoder {
+    [_metalSessionLock lock];
     MetalFXFrameRenderer *metal = _metalRenderer;
     _metalRenderer = nil;
     if (metal != nil) {
@@ -293,6 +307,7 @@ int DrSubmitDecodeUnit(PDECODE_UNIT decodeUnit);
         _decompressionSession = NULL;
     }
     _sessionFormat = NULL;
+    [_metalSessionLock unlock];
     [metal invalidate];
 }
 
@@ -401,19 +416,28 @@ int DrSubmitDecodeUnit(PDECODE_UNIT decodeUnit);
 }
 
 - (BOOL)submitMetalSampleBuffer:(CMSampleBufferRef)sampleBuffer {
-    if (_metalRenderer == nil) {
+    [_metalSessionLock lock];
+    if (_metalPumpStop || _metalAbandoned || _metalRenderer == nil) {
+        [_metalSessionLock unlock];
         return NO;
     }
-    if (![self ensureMetalSession]) {
+    BOOL ready = [self ensureMetalSession];
+    VTDecompressionSessionRef session = _decompressionSession;
+    if (session != NULL) {
+        CFRetain(session);
+    }
+    [_metalSessionLock unlock];
+    if (!ready || session == NULL) {
         [self abandonMetalFX:@"decompression session was not created" requestIdr:NO];
         return NO;
     }
     VTDecodeInfoFlags info = 0;
-    OSStatus status = VTDecompressionSessionDecodeFrame(_decompressionSession,
+    OSStatus status = VTDecompressionSessionDecodeFrame(session,
                                                         sampleBuffer,
                                                         kVTDecodeFrame_EnableAsynchronousDecompression,
                                                         NULL,
                                                         &info);
+    CFRelease(session);
     if (status != noErr) {
         Log(LOG_W, @"MetalFX decode submission failed: %d", (int)status);
         [self abandonMetalFX:@"decode submission failed" requestIdr:NO];

@@ -64,7 +64,45 @@ typedef NS_ENUM(NSInteger, MetalFXStatsMode) {
                         output:(CGSize)output;
 
 /// Appends " +1.2 ms" when latencyMs is zero or positive. A negative value leaves the line unchanged.
+/// The number is decode-callback to on-screen present, not the scaler's GPU time alone.
 + (NSString *)statsLine:(NSString *)line appendingLatencyMs:(double)latencyMs;
+
+/// Same line with the stage that consumed the most of that time: queue, texture,
+/// yuv, scaler, drawable, gpu, or present.
++ (NSString *)statsLine:(NSString *)line appendingLatencyMs:(double)latencyMs stage:(nullable NSString *)stage;
+
+/// Name of the largest stage. Equal values keep the earlier name.
++ (NSString *)dominantStageNameForQueueMs:(double)queueMs
+                                 textureMs:(double)textureMs
+                                     yuvMs:(double)yuvMs
+                                  scalerMs:(double)scalerMs
+                                drawableMs:(double)drawableMs
+                                     gpuMs:(double)gpuMs
+                                  presentMs:(double)presentMs;
+
+@end
+
+/// Keeps the newest submitted frame and allows only one present at a time.
+/// submitFrame: is safe from the decode thread. beginPresent and endPresent
+/// are safe from the render thread at the same time.
+@interface MetalFXFrameSchedule : NSObject
+
+@property (nonatomic, readonly) NSUInteger submittedFrames;
+@property (nonatomic, readonly) NSUInteger droppedFrames;
+@property (nonatomic, readonly) NSUInteger presentedFrames;
+@property (nonatomic, readonly) BOOL presentInFlight;
+
+/// Replaces a frame that has not started presenting. Returns the dropped id, or 0.
+- (uint64_t)submitFrame:(uint64_t)frameId;
+
+/// Claims the pending frame. Returns 0 when a present is already in flight or nothing is waiting.
+- (uint64_t)beginPresent;
+
+/// Marks a present in flight even when the caller tracks the pixel buffer itself.
+/// Returns NO if one is already in flight, so the caller does not block on a drawable.
+- (BOOL)tryBeginPresent;
+
+- (void)endPresent;
 
 @end
 

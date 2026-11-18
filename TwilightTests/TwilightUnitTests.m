@@ -403,6 +403,53 @@
     NSString *timed = [MetalFXLayout statsLine:@"MetalFX active 1280x720 -> 2334x1206" appendingLatencyMs:4.16];
     XCTAssertEqualObjects(timed, @"MetalFX active 1280x720 -> 2334x1206 +4.2 ms");
     XCTAssertEqualObjects([MetalFXLayout statsLine:@"MetalFX off" appendingLatencyMs:-1], @"MetalFX off");
+    NSString *staged = [MetalFXLayout statsLine:@"MetalFX active 1280x720 -> 2334x1206" appendingLatencyMs:73.2 stage:@"drawable"];
+    XCTAssertEqualObjects(staged, @"MetalFX active 1280x720 -> 2334x1206 +73.2 ms drawable");
+    XCTAssertEqualObjects([MetalFXLayout dominantStageNameForQueueMs:0.4
+                                                            textureMs:0.2
+                                                                yuvMs:0.3
+                                                             scalerMs:1.1
+                                                           drawableMs:70
+                                                                gpuMs:2.0
+                                                             presentMs:8.0], @"drawable");
+    XCTAssertEqualObjects([MetalFXLayout dominantStageNameForQueueMs:0.1
+                                                            textureMs:0.1
+                                                                yuvMs:0.1
+                                                             scalerMs:0.4
+                                                           drawableMs:0.2
+                                                                gpuMs:1.5
+                                                             presentMs:6.0], @"present");
+}
+
+- (void)testMetalFXScheduleDropsStaleFramesAndRejectsOverlappedPresents {
+    MetalFXFrameSchedule *schedule = [[MetalFXFrameSchedule alloc] init];
+    for (uint64_t frame = 1; frame <= 50; frame++) {
+        [schedule submitFrame:frame];
+    }
+    XCTAssertEqual(schedule.submittedFrames, 50);
+    XCTAssertEqual(schedule.droppedFrames, 49);
+    XCTAssertEqual([schedule beginPresent], 50);
+    XCTAssertEqual([schedule beginPresent], 0);
+    XCTAssertTrue(schedule.presentInFlight);
+    XCTAssertFalse([schedule tryBeginPresent]);
+    [schedule endPresent];
+    XCTAssertFalse(schedule.presentInFlight);
+
+    dispatch_queue_t queue = dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0);
+    dispatch_apply(8, queue, ^(size_t lane) {
+        for (int i = 0; i < 400; i++) {
+            [schedule submitFrame:(uint64_t)(lane * 1000 + (uint64_t)i + 1)];
+            uint64_t claimed = [schedule beginPresent];
+            if (claimed != 0) {
+                [schedule endPresent];
+            }
+        }
+    });
+    while ([schedule beginPresent] != 0) {
+        [schedule endPresent];
+    }
+    XCTAssertFalse(schedule.presentInFlight);
+    XCTAssertEqual(schedule.presentedFrames + schedule.droppedFrames, schedule.submittedFrames);
 }
 
 @end

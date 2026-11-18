@@ -2,10 +2,10 @@
 //  MetalFXFrameRenderer.m
 //  Moonlight
 //
-//  CVPixelBuffer -> CVMetalTextureCache -> YUV to RGB -> MTLFXSpatialScaler
-//  -> aspect-fit blit into a CAMetalLayer. No CPU frame queue: a second frame
-//  that arrives while one is encoding is dropped, and the layer keeps two
-//  drawables so the display is not holding an extra queued frame.
+//  CVPixelBuffer -> private RGB texture -> MTLFXSpatialScaler -> private
+//  output -> render blit into a CAMetalLayer. The scaler never writes the
+//  drawable. One present is scheduled at a time, and each in-flight frame
+//  has its own scaler and textures.
 //
 
 #import "MetalFXFrameRenderer.h"
@@ -13,7 +13,6 @@
 #import "StreamVideoLayout.h"
 
 #import <Metal/Metal.h>
-#import <objc/message.h>
 // The simulator SDK does not ship MetalFX.framework. Device SDKs do.
 // The stream always falls back to AVSampleBufferDisplayLayer when this is 0.
 #if !TARGET_OS_SIMULATOR && __has_include(<MetalFX/MetalFX.h>)
@@ -130,6 +129,55 @@ typedef struct {
 }
 @end
 
+@interface MetalFXTiming : NSObject
+@property (nonatomic, assign) CFTimeInterval decodedAt;
+@property (nonatomic, assign) double queueMs;
+@property (nonatomic, assign) double textureMs;
+@property (nonatomic, assign) double yuvMs;
+@property (nonatomic, assign) double scalerMs;
+@property (nonatomic, assign) double drawableMs;
+@property (nonatomic, assign) double gpuMs;
+@property (nonatomic, assign) CFTimeInterval presentCommit;
+@property (nonatomic, assign) CFTimeInterval readyAt;
+@property (nonatomic, assign) int inW;
+@property (nonatomic, assign) int inH;
+@property (nonatomic, assign) int outW;
+@property (nonatomic, assign) int outH;
+@end
+
+@implementation MetalFXTiming
+@end
+
+@interface MetalFXSlot : NSObject
+@property (nonatomic, strong) id scaler;
+@property (nonatomic, strong) id<MTLTexture> rgb;
+@property (nonatomic, strong) id<MTLTexture> scaled;
+@property (nonatomic, assign) NSUInteger inW;
+@property (nonatomic, assign) NSUInteger inH;
+@property (nonatomic, assign) NSUInteger outW;
+@property (nonatomic, assign) NSUInteger outH;
+@property (nonatomic, assign) BOOL busy;
+@property (nonatomic, assign) BOOL ready;
+@property (nonatomic, assign) BOOL presenting;
+@property (nonatomic, assign) BOOL discard;
+@property (nonatomic, strong) MetalFXTiming *timing;
+@end
+
+@implementation MetalFXSlot
+@end
+
+static NSString *MetalFXCommandStatusName(MTLCommandBufferStatus status) {
+    switch (status) {
+        case MTLCommandBufferStatusNotEnqueued: return @"notEnqueued";
+        case MTLCommandBufferStatusEnqueued: return @"enqueued";
+        case MTLCommandBufferStatusCommitted: return @"committed";
+        case MTLCommandBufferStatusScheduled: return @"scheduled";
+        case MTLCommandBufferStatusCompleted: return @"completed";
+        case MTLCommandBufferStatusError: return @"error";
+    }
+    return @"unknown";
+}
+
 @implementation MetalFXFrameRenderer {
     UIView *_view;
     CAMetalLayer *_layer;
@@ -138,13 +186,7 @@ typedef struct {
     id<MTLRenderPipelineState> _yuvPipeline;
     id<MTLRenderPipelineState> _blitPipeline;
     CVMetalTextureCacheRef _textureCache;
-    id _scaler;
-    id<MTLTexture> _rgbTexture;
-    id<MTLTexture> _scaledTexture;
-    NSUInteger _scalerInW;
-    NSUInteger _scalerInH;
-    NSUInteger _scalerOutW;
-    NSUInteger _scalerOutH;
+    MetalFXSlot *_slots[2];
     MTLPixelFormat _colorFormat;
     BOOL _hdr;
     BOOL _expects10Bit;
@@ -155,6 +197,8 @@ typedef struct {
     BOOL _tornDown;
     BOOL _announcedFrame;
     NSInteger _skippedForLayout;
+    NSInteger _nilDrawables;
+    int _layoutDeferred;
     CGFloat _streamAspectRatio;
     CGSize _viewPixels;
     dispatch_queue_t _renderQueue;
@@ -162,18 +206,24 @@ typedef struct {
     CVPixelBufferRef _pendingBuffer;
     CFTimeInterval _pendingDecodedAt;
     BOOL _renderQueued;
-    id<MTLTexture> _rgbSlots[3];
-    int _rgbInFlight[3];
-    double _latencyEmaMs;
+    MetalFXFrameSchedule *_schedule;
+    double _emaTotal;
+    double _emaQueue;
+    double _emaTexture;
+    double _emaYuv;
+    double _emaScaler;
+    double _emaDrawable;
+    double _emaGpu;
+    double _emaPresent;
     int _latencySamples;
     int _latencyPublishedTenths;
+    NSString *_latencyPublishedStage;
     int _publishedW;
     int _publishedH;
     int _publishedOutW;
     int _publishedOutH;
     CGSize _screenPixels;
     NSLock *_lock;
-    NSLock *_renderLock;
 }
 
 static NSLock *gStatsLock;
@@ -273,7 +323,7 @@ static NSString *gStatsLine;
 
 - (BOOL)prepareWithView:(UIView *)view hdr:(BOOL)hdr {
     _lock = [[NSLock alloc] init];
-    _renderLock = [[NSLock alloc] init];
+    _schedule = [[MetalFXFrameSchedule alloc] init];
     _view = view;
     _matrix = hdr ? 2 : 0;
     _device = MTLCreateSystemDefaultDevice();
@@ -326,23 +376,21 @@ static NSString *gStatsLine;
     _layer = [CAMetalLayer layer];
     _layer.device = _device;
     _layer.pixelFormat = _colorFormat;
+    // A render blit targets the drawable. MetalFX writes a private texture, not this one.
     _layer.framebufferOnly = YES;
     _layer.opaque = YES;
     _layer.backgroundColor = [UIColor blackColor].CGColor;
-    // Two drawables, and nextDrawable gives up instead of blocking the decoder.
+    // One present is in flight. The second drawable lets nextDrawable return
+    // immediately instead of waiting out a vsync when the pool is full.
     _layer.maximumDrawableCount = 2;
     _layer.presentsWithTransaction = NO;
-    _layer.framebufferOnly = NO;
 #if !TARGET_OS_TV
     if (@available(iOS 18.0, *)) {
         _layer.allowsNextDrawableTimeout = YES;
     }
 #endif
-    SEL displaySync = NSSelectorFromString(@"setDisplaySyncEnabled:");
-    if ([_layer respondsToSelector:displaySync]) {
-        ((void (*)(id, SEL, BOOL))objc_msgSend)(_layer, displaySync, NO);
-    }
-    _layer.hidden = YES;
+    // A hidden layer does not return drawables, so nextDrawable would block.
+    _layer.hidden = NO;
     _renderQueue = dispatch_queue_create("twilight.metalfx.render", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0));
     _pendingLock = [[NSLock alloc] init];
     _latencyPublishedTenths = -1;
@@ -418,10 +466,26 @@ static NSString *gStatsLine;
     if (CGRectIsEmpty(videoRect)) {
         videoRect = _view.bounds;
     }
-    _layer.frame = videoRect;
-    _layer.contentsScale = scale;
-    _layer.drawableSize = CGSizeMake(MAX(1, round(videoRect.size.width * scale)),
+    // Assigning drawableSize drops every drawable the pool is holding.
+    // Skip the write when layout has not actually changed.
+    if (!CGRectEqualToRect(_layer.frame, videoRect)) {
+        _layer.frame = videoRect;
+    }
+    if (_layer.contentsScale != scale) {
+        _layer.contentsScale = scale;
+    }
+    CGSize drawableSize = CGSizeMake(MAX(1, round(videoRect.size.width * scale)),
                                      MAX(1, round(videoRect.size.height * scale)));
+    // Resizing the drawable pool while a present is in flight drops that
+    // drawable and can fault the display.
+    if (!CGSizeEqualToSize(_layer.drawableSize, drawableSize)) {
+        if (_schedule.presentInFlight) {
+            __atomic_store_n(&_layoutDeferred, 1, __ATOMIC_RELEASE);
+        }
+        else {
+            _layer.drawableSize = drawableSize;
+        }
+    }
     CGSize viewPixels = CGSizeMake(MAX(1, round(_view.bounds.size.width * scale)),
                                    MAX(1, round(_view.bounds.size.height * scale)));
     CGSize points = UIScreen.mainScreen.bounds.size;
@@ -454,8 +518,27 @@ static NSString *gStatsLine;
     });
 }
 
-- (BOOL)rebuildScalerInputWidth:(NSUInteger)inW height:(NSUInteger)inH output:(CGSize)output {
+- (MetalFXSlot *)claimFreeSlot {
+    for (int i = 0; i < 2; i++) {
+        if (_slots[i] == nil) {
+            _slots[i] = [[MetalFXSlot alloc] init];
+        }
+        if (!_slots[i].busy) {
+            MetalFXSlot *slot = _slots[i];
+            slot.busy = YES;
+            slot.ready = NO;
+            slot.presenting = NO;
+            slot.discard = NO;
+            slot.timing = nil;
+            return slot;
+        }
+    }
+    return nil;
+}
+
+- (BOOL)configureSlot:(MetalFXSlot *)slot inputWidth:(NSUInteger)inW height:(NSUInteger)inH output:(CGSize)output {
 #if !TWILIGHT_HAS_METALFX
+    (void)slot;
     (void)inW;
     (void)inH;
     (void)output;
@@ -463,7 +546,11 @@ static NSString *gStatsLine;
 #else
     NSUInteger outW = (NSUInteger)llround(output.width);
     NSUInteger outH = (NSUInteger)llround(output.height);
-    if (_scaler != nil && _scalerInW == inW && _scalerInH == inH && _scalerOutW == outW && _scalerOutH == outH && _scaledTexture != nil && _rgbTexture != nil) {
+    if (outW < 2 || outH < 2) {
+        return NO;
+    }
+    if (slot.scaler != nil && slot.rgb != nil && slot.scaled != nil &&
+        slot.inW == inW && slot.inH == inH && slot.outW == outW && slot.outH == outH) {
         return YES;
     }
     if (@available(iOS 16.0, tvOS 16.0, *)) {
@@ -502,24 +589,132 @@ static NSString *gStatsLine;
             Log(LOG_W, @"MetalFX: intermediate textures were not created");
             return NO;
         }
-        _scaler = scaler;
-        _rgbTexture = rgb;
-        _scaledTexture = scaled;
-        _scalerInW = inW;
-        _scalerInH = inH;
-        _scalerOutW = outW;
-        _scalerOutH = outH;
+        slot.scaler = scaler;
+        slot.rgb = rgb;
+        slot.scaled = scaled;
+        slot.inW = inW;
+        slot.inH = inH;
+        slot.outW = outW;
+        slot.outH = outH;
         return YES;
     }
     return NO;
 #endif
 }
 
+- (void)finishSlot:(MetalFXSlot *)slot {
+    slot.busy = NO;
+    slot.ready = NO;
+    slot.presenting = NO;
+    slot.discard = NO;
+    slot.timing = nil;
+}
+
+- (void)noteCommandBuffer:(id<MTLCommandBuffer>)buffer label:(NSString *)label {
+    if (buffer.status == MTLCommandBufferStatusCompleted) {
+        return;
+    }
+    Log(LOG_E, @"MetalFX %@ command buffer status %@ (%ld) %@",
+        label,
+        MetalFXCommandStatusName(buffer.status),
+        (long)buffer.status,
+        buffer.error);
+    if (buffer.status == MTLCommandBufferStatusError) {
+        [self failWithReason:[NSString stringWithFormat:@"%@ command buffer failed", label]];
+    }
+}
+
+- (void)announceFirstFrame {
+    if (_announcedFrame) {
+        return;
+    }
+    _announcedFrame = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self->_layer.hidden = NO;
+        void (^shown)(void) = self.firstFrameHandler;
+        if (shown != nil) {
+            shown();
+        }
+    });
+}
+
+- (void)recordTiming:(MetalFXTiming *)timing presentedAt:(CFTimeInterval)presentedAt {
+    if (timing == nil || timing.decodedAt <= 0 || _invalid) {
+        return;
+    }
+    double total = (presentedAt - timing.decodedAt) * 1000.0;
+    if (total < 0 || total > 500) {
+        return;
+    }
+    double presentMs = timing.presentCommit > 0 ? (presentedAt - timing.presentCommit) * 1000.0 : 0;
+    if (presentMs < 0) {
+        presentMs = 0;
+    }
+    if (_latencySamples == 0) {
+        _emaTotal = total;
+        _emaQueue = timing.queueMs;
+        _emaTexture = timing.textureMs;
+        _emaYuv = timing.yuvMs;
+        _emaScaler = timing.scalerMs;
+        _emaDrawable = timing.drawableMs;
+        _emaGpu = timing.gpuMs;
+        _emaPresent = presentMs;
+    }
+    else {
+        _emaTotal = _emaTotal * 0.8 + total * 0.2;
+        _emaQueue = _emaQueue * 0.8 + timing.queueMs * 0.2;
+        _emaTexture = _emaTexture * 0.8 + timing.textureMs * 0.2;
+        _emaYuv = _emaYuv * 0.8 + timing.yuvMs * 0.2;
+        _emaScaler = _emaScaler * 0.8 + timing.scalerMs * 0.2;
+        _emaDrawable = _emaDrawable * 0.8 + timing.drawableMs * 0.2;
+        _emaGpu = _emaGpu * 0.8 + timing.gpuMs * 0.2;
+        _emaPresent = _emaPresent * 0.8 + presentMs * 0.2;
+    }
+    _latencySamples++;
+    NSString *stage = [MetalFXLayout dominantStageNameForQueueMs:_emaQueue
+                                                        textureMs:_emaTexture
+                                                            yuvMs:_emaYuv
+                                                         scalerMs:_emaScaler
+                                                       drawableMs:_emaDrawable
+                                                            gpuMs:_emaGpu
+                                                         presentMs:_emaPresent];
+    int tenths = (int)llround(_emaTotal * 10.0);
+    if (tenths == _latencyPublishedTenths && [stage isEqualToString:_latencyPublishedStage]) {
+        return;
+    }
+    _latencyPublishedTenths = tenths;
+    _latencyPublishedStage = stage;
+    if (timing.inW >= 2 && timing.inH >= 2) {
+        _publishedW = timing.inW;
+        _publishedH = timing.inH;
+        _publishedOutW = timing.outW;
+        _publishedOutH = timing.outH;
+    }
+    if (_publishedW < 2 || _publishedH < 2) {
+        return;
+    }
+    NSString *base = [MetalFXLayout statsLineForMode:MetalFXStatsModeActive
+                                               input:CGSizeMake(_publishedW, _publishedH)
+                                              output:CGSizeMake(_publishedOutW, _publishedOutH)];
+    NSString *line = [MetalFXLayout statsLine:base appendingLatencyMs:_emaTotal stage:stage];
+    [MetalFXFrameRenderer publishStatsLine:line];
+    Log(LOG_I, @"%@ (queue %.1f texture %.1f yuv %.1f scaler %.1f drawable %.1f gpu %.1f present %.1f)",
+        line, _emaQueue, _emaTexture, _emaYuv, _emaScaler, _emaDrawable, _emaGpu, _emaPresent);
+}
+
+- (void)drainPendingFrames {
+    if (_invalid || _tornDown) {
+        return;
+    }
+    [self presentReadySlot];
+    [self startGpuForPendingFrame];
+}
+
 - (BOOL)renderPixelBuffer:(CVPixelBufferRef)pixelBuffer {
     if (_invalid || _tornDown || _layer == nil || pixelBuffer == NULL || _renderQueue == nil) {
         return YES;
     }
-    // Decode is done. Keep only the newest buffer and encode it off this thread.
+    // Timestamp at the decode callback. +X ms runs from here until the drawable is on screen.
     CFTimeInterval decodedAt = CACurrentMediaTime();
     CVPixelBufferRetain(pixelBuffer);
     [_pendingLock lock];
@@ -540,66 +735,186 @@ static NSString *gStatsLine;
     return YES;
 }
 
-- (void)drainPendingFrames {
-    while (!_invalid && !_tornDown) {
+- (void)startGpuForPendingFrame {
+    if (_invalid || _tornDown) {
+        return;
+    }
+    [_pendingLock lock];
+    BOOL hasFrame = _pendingBuffer != NULL;
+    [_pendingLock unlock];
+    if (!hasFrame) {
         [_pendingLock lock];
-        CVPixelBufferRef buffer = _pendingBuffer;
-        CFTimeInterval decodedAt = _pendingDecodedAt;
-        _pendingBuffer = NULL;
-        if (buffer == NULL) {
+        if (_pendingBuffer == NULL) {
             _renderQueued = NO;
-            [_pendingLock unlock];
-            return;
         }
         [_pendingLock unlock];
-        [self encodePixelBuffer:buffer decodedAt:decodedAt];
-        CVPixelBufferRelease(buffer);
+        return;
+    }
+    MetalFXSlot *slot = [self claimFreeSlot];
+    if (slot == nil) {
+        // Both private targets are still in use. Keep the newest pixel buffer.
+        return;
+    }
+    [_pendingLock lock];
+    CVPixelBufferRef buffer = _pendingBuffer;
+    CFTimeInterval decodedAt = _pendingDecodedAt;
+    _pendingBuffer = NULL;
+    if (buffer == NULL) {
+        _renderQueued = NO;
+        [_pendingLock unlock];
+        [self finishSlot:slot];
+        return;
+    }
+    [_pendingLock unlock];
+    BOOL submitted = [self encodeGpuBuffer:buffer slot:slot decodedAt:decodedAt];
+    CVPixelBufferRelease(buffer);
+    if (!submitted) {
+        [self finishSlot:slot];
+    }
+    [_pendingLock lock];
+    BOOL more = _pendingBuffer != NULL;
+    if (!more) {
+        _renderQueued = NO;
+    }
+    [_pendingLock unlock];
+    if (more) {
+        [self startGpuForPendingFrame];
     }
 }
 
-- (int)acquireRgbSlotForWidth:(NSUInteger)width height:(NSUInteger)height {
-    for (int i = 0; i < 3; i++) {
-        if (__atomic_load_n(&_rgbInFlight[i], __ATOMIC_ACQUIRE) != 0) {
+- (void)presentReadySlot {
+    if (_invalid || _schedule.presentInFlight) {
+        return;
+    }
+    MetalFXSlot *newest = nil;
+    for (int i = 0; i < 2; i++) {
+        MetalFXSlot *slot = _slots[i];
+        if (slot == nil || !slot.ready || slot.presenting) {
             continue;
         }
-        id<MTLTexture> tex = _rgbSlots[i];
-        if (tex == nil || tex.width != width || tex.height != height || tex.pixelFormat != _colorFormat) {
-            MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:_colorFormat width:width height:height mipmapped:NO];
-            desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
-            desc.storageMode = MTLStorageModePrivate;
-            tex = [_device newTextureWithDescriptor:desc];
-            if (tex == nil) {
-                continue;
-            }
-            _rgbSlots[i] = tex;
+        if (slot.timing == nil) {
+            [self finishSlot:slot];
+            continue;
         }
-        __atomic_store_n(&_rgbInFlight[i], 1, __ATOMIC_RELEASE);
-        return i;
+        if (newest != nil && newest.timing.decodedAt > slot.timing.decodedAt) {
+            [self finishSlot:slot];
+            continue;
+        }
+        if (newest != nil) {
+            [self finishSlot:newest];
+        }
+        newest = slot;
     }
-    return -1;
+    if (newest != nil) {
+        [self presentSlot:newest];
+    }
 }
 
-- (void)recordPresentedLatencyMs:(double)ms {
-    if (ms < 0 || ms > 200) {
+- (void)presentSlot:(MetalFXSlot *)slot {
+    if (slot == nil || slot.presenting || _invalid || _layer == nil) {
         return;
     }
-    _latencyEmaMs = _latencySamples == 0 ? ms : (_latencyEmaMs * 0.8 + ms * 0.2);
-    _latencySamples++;
-    int tenths = (int)llround(_latencyEmaMs * 10.0);
-    if (tenths == _latencyPublishedTenths) {
+    if (![_schedule tryBeginPresent]) {
         return;
     }
-    _latencyPublishedTenths = tenths;
-    if (_publishedW < 2 || _publishedH < 2) {
+    MetalFXTiming *timing = slot.timing;
+    CFTimeInterval acquireStart = CACurrentMediaTime();
+    id<CAMetalDrawable> drawable = [_layer nextDrawable];
+    double acquireMs = (CACurrentMediaTime() - acquireStart) * 1000.0;
+    if (timing != nil) {
+        double parked = timing.readyAt > 0 ? (acquireStart - timing.readyAt) * 1000.0 : 0;
+        if (parked < 0) {
+            parked = 0;
+        }
+        timing.drawableMs = parked + acquireMs;
+    }
+    if (drawable == nil) {
+        [_schedule endPresent];
+        _nilDrawables++;
+        Log(LOG_W, @"MetalFX nextDrawable returned nil after %.1f ms (%ld in a row)", acquireMs, (long)_nilDrawables);
+        slot.discard = YES;
+        if (slot.ready) {
+            [self finishSlot:slot];
+        }
+        if (_nilDrawables >= 30) {
+            [self failWithReason:@"drawable pool did not return a texture"];
+        }
         return;
     }
-    NSString *base = [MetalFXLayout statsLineForMode:MetalFXStatsModeActive
-                                               input:CGSizeMake(_publishedW, _publishedH)
-                                              output:CGSizeMake(_publishedOutW, _publishedOutH)];
-    [MetalFXFrameRenderer publishStatsLine:[MetalFXLayout statsLine:base appendingLatencyMs:_latencyEmaMs]];
+    _nilDrawables = 0;
+    if (drawable.texture.width < slot.outW || drawable.texture.height < slot.outH) {
+        [_schedule endPresent];
+        slot.discard = YES;
+        if (slot.ready) {
+            [self finishSlot:slot];
+        }
+        return;
+    }
+    CGRect output = CGRectMake(floor((drawable.texture.width - slot.outW) / 2.0),
+                               floor((drawable.texture.height - slot.outH) / 2.0),
+                               slot.outW,
+                               slot.outH);
+    id<MTLCommandBuffer> presentBuffer = [_queue commandBuffer];
+    if (presentBuffer == nil) {
+        [_schedule endPresent];
+        [self failWithReason:@"present command buffer was not created"];
+        return;
+    }
+    CGRect viewport = [MetalFXLayout metalViewportForOutputRect:output drawableHeight:drawable.texture.height];
+    MTLRenderPassDescriptor *blitPass = [MTLRenderPassDescriptor renderPassDescriptor];
+    blitPass.colorAttachments[0].texture = drawable.texture;
+    blitPass.colorAttachments[0].loadAction = MTLLoadActionClear;
+    blitPass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
+    blitPass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    id<MTLRenderCommandEncoder> blit = [presentBuffer renderCommandEncoderWithDescriptor:blitPass];
+    if (blit == nil) {
+        [_schedule endPresent];
+        [self failWithReason:@"blit encoder was not created"];
+        return;
+    }
+    [blit setRenderPipelineState:_blitPipeline];
+    [blit setFragmentTexture:slot.scaled atIndex:0];
+    MTLViewport metalViewport = {
+        viewport.origin.x, viewport.origin.y, viewport.size.width, viewport.size.height, 0, 1
+    };
+    [blit setViewport:metalViewport];
+    [blit drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+    [blit endEncoding];
+
+    slot.presenting = YES;
+    slot.ready = NO;
+    if (timing != nil) {
+        timing.presentCommit = CACurrentMediaTime();
+    }
+    MetalFXTiming *presentedTiming = timing;
+    [drawable addPresentedHandler:^(id<MTLDrawable> presented) {
+        (void)presented;
+        CFTimeInterval shownAt = CACurrentMediaTime();
+        dispatch_async(self->_renderQueue, ^{
+            [self recordTiming:presentedTiming presentedAt:shownAt];
+        });
+    }];
+    [presentBuffer presentDrawable:drawable afterMinimumDuration:0];
+    MetalFXSlot *finished = slot;
+    [presentBuffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+        dispatch_async(self->_renderQueue, ^{
+            [self noteCommandBuffer:buffer label:@"present"];
+            [self finishSlot:finished];
+            [self->_schedule endPresent];
+            if (__atomic_exchange_n(&self->_layoutDeferred, 0, __ATOMIC_ACQ_REL)) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self syncLayerToView];
+                });
+            }
+            [self drainPendingFrames];
+        });
+    }];
+    [presentBuffer commit];
+    [self announceFirstFrame];
 }
 
-- (BOOL)encodePixelBuffer:(CVPixelBufferRef)pixelBuffer decodedAt:(CFTimeInterval)decodedAt {
+- (BOOL)encodeGpuBuffer:(CVPixelBufferRef)pixelBuffer slot:(MetalFXSlot *)slot decodedAt:(CFTimeInterval)decodedAt {
+    CFTimeInterval started = CACurrentMediaTime();
     OSType format = CVPixelBufferGetPixelFormatType(pixelBuffer);
     BOOL tenBit = format == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange || format == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange;
     BOOL bufferFull = format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange || format == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange;
@@ -621,16 +936,16 @@ static NSString *gStatsLine;
     size_t uvWidth = CVPixelBufferGetWidthOfPlane(pixelBuffer, 1);
     size_t uvHeight = CVPixelBufferGetHeightOfPlane(pixelBuffer, 1);
     if (width < 2 || height < 2 || uvWidth < 1 || uvHeight < 1) {
-        return YES;
+        return NO;
     }
     CGSize drawablePixels = _layer.drawableSize;
     if (drawablePixels.width < 2 || drawablePixels.height < 2) {
-        return YES;
+        return NO;
     }
     CGFloat aspect = (CGFloat)width / (CGFloat)height;
     CGRect output = [MetalFXLayout outputRectForDrawablePixels:drawablePixels streamAspectRatio:aspect];
     if (CGRectIsEmpty(output)) {
-        return YES;
+        return NO;
     }
     CGSize screen;
     CGSize viewPixels;
@@ -640,29 +955,31 @@ static NSString *gStatsLine;
     viewPixels = _viewPixels;
     matrix = _matrix;
     [_lock unlock];
-    // The drawable is the video rect, which is smaller than the screen in
-    // Safe Area and fixed-resolution modes. Settle from the view, not the drawable.
     BOOL settled = screen.width < 2.0 || screen.height < 2.0 ||
         (viewPixels.width >= screen.width * 0.85 && viewPixels.height >= screen.height * 0.85);
     if (![MetalFXLayout canUpscaleInput:CGSizeMake(width, height) toOutput:output.size]) {
         if (!settled && _skippedForLayout < 45) {
             _skippedForLayout++;
-            return YES;
+            return NO;
         }
         [self failWithReason:@"output is not larger than the stream"];
         return NO;
     }
-    if (![self rebuildScalerInputWidth:width height:height output:output.size]) {
+    if (![self configureSlot:slot inputWidth:width height:height output:output.size]) {
         [self failWithReason:@"spatial scaler setup failed"];
         return NO;
     }
-    int rgbSlot = [self acquireRgbSlotForWidth:width height:height];
-    if (rgbSlot < 0) {
-        // All three color targets are still on the GPU. Drop this frame.
-        return YES;
-    }
-    id<MTLTexture> rgbTexture = _rgbSlots[rgbSlot];
 
+    MetalFXTiming *timing = [[MetalFXTiming alloc] init];
+    timing.decodedAt = decodedAt;
+    timing.queueMs = (started - decodedAt) * 1000.0;
+    timing.inW = (int)width;
+    timing.inH = (int)height;
+    timing.outW = (int)llround(output.size.width);
+    timing.outH = (int)llround(output.size.height);
+    slot.timing = timing;
+
+    CFTimeInterval textureStart = CACurrentMediaTime();
     MTLPixelFormat yFormat = tenBit ? MTLPixelFormatR16Unorm : MTLPixelFormatR8Unorm;
     MTLPixelFormat uvFormat = tenBit ? MTLPixelFormatRG16Unorm : MTLPixelFormatRG8Unorm;
     MetalFXHeldTextures *held = [[MetalFXHeldTextures alloc] init];
@@ -672,6 +989,7 @@ static NSString *gStatsLine;
     CVReturn uvStatus = CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, _textureCache, pixelBuffer, NULL, uvFormat, uvWidth, uvHeight, 1, &uvRef);
     held.y = yRef;
     held.uv = uvRef;
+    timing.textureMs = (CACurrentMediaTime() - textureStart) * 1000.0;
     id<MTLTexture> yTex = yRef != NULL ? CVMetalTextureGetTexture(yRef) : nil;
     id<MTLTexture> uvTex = uvRef != NULL ? CVMetalTextureGetTexture(uvRef) : nil;
     if (yStatus != kCVReturnSuccess || uvStatus != kCVReturnSuccess || yTex == nil || uvTex == nil) {
@@ -679,22 +997,20 @@ static NSString *gStatsLine;
         return NO;
     }
 
-    id<CAMetalDrawable> metalDrawable = [_layer nextDrawable];
-    if (metalDrawable == nil) {
-        __atomic_store_n(&_rgbInFlight[rgbSlot], 0, __ATOMIC_RELEASE);
-        return YES;
-    }
+#if !TWILIGHT_HAS_METALFX
+    (void)matrix;
+    (void)bufferFull;
+    (void)held;
+    [self failWithReason:@"MetalFX is unavailable"];
+    return NO;
+#else
     id<MTLCommandBuffer> commandBuffer = [_queue commandBuffer];
     if (commandBuffer == nil) {
-        __atomic_store_n(&_rgbInFlight[rgbSlot], 0, __ATOMIC_RELEASE);
         [self failWithReason:@"command buffer was not created"];
         return NO;
     }
-
     MetalFXYUVParams params;
     params.matrix = matrix;
-    // The decompression session asks for limited range. The buffer's own
-    // format is what the sampler produced.
     params.fullRange = bufferFull ? 1 : 0;
     params.tenBit = tenBit ? 1 : 0;
     if (_hdr && tenBit) {
@@ -707,13 +1023,13 @@ static NSString *gStatsLine;
         params.transfer = 0;
     }
 
+    CFTimeInterval yuvStart = CACurrentMediaTime();
     MTLRenderPassDescriptor *yuvPass = [MTLRenderPassDescriptor renderPassDescriptor];
-    yuvPass.colorAttachments[0].texture = rgbTexture;
+    yuvPass.colorAttachments[0].texture = slot.rgb;
     yuvPass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
     yuvPass.colorAttachments[0].storeAction = MTLStoreActionStore;
     id<MTLRenderCommandEncoder> yuvEncoder = [commandBuffer renderCommandEncoderWithDescriptor:yuvPass];
     if (yuvEncoder == nil) {
-        __atomic_store_n(&_rgbInFlight[rgbSlot], 0, __ATOMIC_RELEASE);
         [self failWithReason:@"YUV encoder was not created"];
         return NO;
     }
@@ -723,96 +1039,54 @@ static NSString *gStatsLine;
     [yuvEncoder setFragmentBytes:&params length:sizeof(params) atIndex:0];
     [yuvEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [yuvEncoder endEncoding];
+    timing.yuvMs = (CACurrentMediaTime() - yuvStart) * 1000.0;
 
-#if !TWILIGHT_HAS_METALFX
-    (void)metalDrawable;
-    (void)commandBuffer;
-    (void)params;
-    (void)decodedAt;
-    __atomic_store_n(&_rgbInFlight[rgbSlot], 0, __ATOMIC_RELEASE);
-    [self failWithReason:@"MetalFX is unavailable"];
-    return NO;
-#else
-    BOOL directToDrawable = metalDrawable.texture.width == _scalerOutW
-        && metalDrawable.texture.height == _scalerOutH
-        && metalDrawable.texture.pixelFormat == _colorFormat;
     if (@available(iOS 16.0, tvOS 16.0, *)) {
-        id<MTLFXSpatialScaler> scaler = _scaler;
-        scaler.colorTexture = rgbTexture;
-        scaler.outputTexture = directToDrawable ? metalDrawable.texture : _scaledTexture;
+        CFTimeInterval scalerStart = CACurrentMediaTime();
+        id<MTLFXSpatialScaler> scaler = slot.scaler;
+        scaler.colorTexture = slot.rgb;
+        // Private texture only. A drawable is not a shader-write target, and
+        // writing it here faults the GPU.
+        scaler.outputTexture = slot.scaled;
         scaler.inputContentWidth = width;
         scaler.inputContentHeight = height;
         [scaler encodeToCommandBuffer:commandBuffer];
+        timing.scalerMs = (CACurrentMediaTime() - scalerStart) * 1000.0;
     }
     else {
-        __atomic_store_n(&_rgbInFlight[rgbSlot], 0, __ATOMIC_RELEASE);
         [self failWithReason:@"MetalFX is unavailable"];
         return NO;
     }
 
-    if (!directToDrawable) {
-        CGRect viewport = [MetalFXLayout metalViewportForOutputRect:output drawableHeight:metalDrawable.texture.height];
-        MTLRenderPassDescriptor *blitPass = [MTLRenderPassDescriptor renderPassDescriptor];
-        blitPass.colorAttachments[0].texture = metalDrawable.texture;
-        blitPass.colorAttachments[0].loadAction = MTLLoadActionClear;
-        blitPass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
-        blitPass.colorAttachments[0].storeAction = MTLStoreActionStore;
-        id<MTLRenderCommandEncoder> blit = [commandBuffer renderCommandEncoderWithDescriptor:blitPass];
-        if (blit == nil) {
-            __atomic_store_n(&_rgbInFlight[rgbSlot], 0, __ATOMIC_RELEASE);
-            [self failWithReason:@"blit encoder was not created"];
-            return NO;
-        }
-        [blit setRenderPipelineState:_blitPipeline];
-        [blit setFragmentTexture:_scaledTexture atIndex:0];
-        MTLViewport metalViewport = {
-            viewport.origin.x, viewport.origin.y, viewport.size.width, viewport.size.height, 0, 1
-        };
-        [blit setViewport:metalViewport];
-        [blit drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-        [blit endEncoding];
-    }
-
-    [metalDrawable addPresentedHandler:^(id<MTLDrawable> presented) {
-        (void)presented;
-        [self recordPresentedLatencyMs:(CACurrentMediaTime() - decodedAt) * 1000.0];
-    }];
-    [commandBuffer presentDrawable:metalDrawable afterMinimumDuration:0];
-    int finishedSlot = rgbSlot;
+    CFTimeInterval workCommit = CACurrentMediaTime();
+    MetalFXSlot *finished = slot;
+    MetalFXTiming *gpuTiming = timing;
     [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+        // This buffer does not present, so the handler runs when the GPU
+        // finishes the color conversion and the scaler, not at vsync.
+        gpuTiming.gpuMs = (CACurrentMediaTime() - workCommit) * 1000.0;
         (void)held;
-        (void)buffer;
-        __atomic_store_n(&self->_rgbInFlight[finishedSlot], 0, __ATOMIC_RELEASE);
+        dispatch_async(self->_renderQueue, ^{
+            [self noteCommandBuffer:buffer label:@"gpu"];
+            if (self->_invalid || finished.discard) {
+                [self finishSlot:finished];
+                [self drainPendingFrames];
+                return;
+            }
+            if (finished.presenting) {
+                return;
+            }
+            finished.ready = YES;
+            if (finished.timing != nil) {
+                finished.timing.readyAt = CACurrentMediaTime();
+            }
+            [self drainPendingFrames];
+        });
     }];
     [commandBuffer commit];
-
     _skippedForLayout = 0;
-    int inW = (int)width;
-    int inH = (int)height;
-    int outW = (int)llround(output.size.width);
-    int outH = (int)llround(output.size.height);
-    if (_publishedW != inW || _publishedH != inH || _publishedOutW != outW || _publishedOutH != outH) {
-        _publishedW = inW;
-        _publishedH = inH;
-        _publishedOutW = outW;
-        _publishedOutH = outH;
-        NSString *base = [MetalFXLayout statsLineForMode:MetalFXStatsModeActive
-                                                   input:CGSizeMake(inW, inH)
-                                                  output:CGSizeMake(outW, outH)];
-        if (_latencySamples > 0) {
-            base = [MetalFXLayout statsLine:base appendingLatencyMs:_latencyEmaMs];
-        }
-        [MetalFXFrameRenderer publishStatsLine:base];
-    }
-    if (!_announcedFrame) {
-        _announcedFrame = YES;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self->_layer.hidden = NO;
-            void (^shown)(void) = self.firstFrameHandler;
-            if (shown != nil) {
-                shown();
-            }
-        });
+    if (!_schedule.presentInFlight) {
+        [self presentSlot:slot];
     }
     return YES;
 #endif
@@ -854,9 +1128,8 @@ static NSString *gStatsLine;
         CFRelease(_textureCache);
         _textureCache = NULL;
     }
-    _scaler = nil;
-    _rgbTexture = nil;
-    _scaledTexture = nil;
+    _slots[0] = nil;
+    _slots[1] = nil;
     _view = nil;
 }
 
