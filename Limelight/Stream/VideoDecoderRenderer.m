@@ -8,6 +8,7 @@
 
 #import "VideoDecoderRenderer.h"
 #import "StreamView.h"
+#import "StreamVideoLayout.h"
 
 #include <libavcodec/avcodec.h>
 #include <libavcodec/cbs.h>
@@ -49,15 +50,14 @@ extern int ff_isom_write_av1c(AVIOContext *pb, const uint8_t *buf, int size,
     // respects the PAR encoded in the SPS which causes our computed video-relative
     // touch location to be wrong in StreamView if the aspect ratio of the host
     // desktop doesn't match the aspect ratio of the stream.
-    CGSize videoSize;
-    if (_view.bounds.size.width > _view.bounds.size.height * _streamAspectRatio) {
-        videoSize = CGSizeMake(_view.bounds.size.height * _streamAspectRatio, _view.bounds.size.height);
-    } else {
-        videoSize = CGSizeMake(_view.bounds.size.width, _view.bounds.size.width / _streamAspectRatio);
-    }
-    displayLayer.position = CGPointMake(CGRectGetMidX(_view.bounds), CGRectGetMidY(_view.bounds));
-    displayLayer.bounds = CGRectMake(0, 0, videoSize.width, videoSize.height);
+    //
+    // The rect is applied again from StreamView's layout pass. This first pass
+    // only covers the bounds that exist at the moment the layer is created.
+    CGRect videoRect = [StreamVideoLayout videoRectForBounds:_view.bounds streamAspectRatio:_streamAspectRatio];
+    displayLayer.position = CGPointMake(CGRectGetMidX(videoRect), CGRectGetMidY(videoRect));
+    displayLayer.bounds = CGRectMake(0, 0, videoRect.size.width, videoRect.size.height);
     displayLayer.videoGravity = AVLayerVideoGravityResize;
+    displayLayer.affineTransform = CGAffineTransformIdentity;
 
     // Hide the layer until we get an IDR frame. This ensures we
     // can see the loading progress label as the stream is starting.
@@ -75,6 +75,10 @@ extern int ff_isom_write_av1c(AVIOContext *pb, const uint8_t *buf, int size,
         CFRelease(formatDesc);
         formatDesc = nil;
     }
+
+    // layoutSubviews sizes the layer from the view's current bounds. A layer
+    // created before rotation settles is corrected on that pass.
+    [_view setNeedsLayout];
 }
 
 - (id)initWithView:(StreamView*)view callbacks:(id<ConnectionCallbacks>)callbacks streamAspectRatio:(float)aspectRatio useFramePacing:(BOOL)useFramePacing

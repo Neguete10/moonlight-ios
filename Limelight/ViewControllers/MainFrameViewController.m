@@ -28,6 +28,7 @@
 #import "ConnectionHelper.h"
 
 #import "TwilightTheme.h"
+#import "StreamVideoLayout.h"
 
 #include <stdlib.h>
 
@@ -677,8 +678,19 @@ static NSMutableSet* hostList;
         }
     }
     
-    _streamConfig.height = [streamSettings.height intValue];
-    _streamConfig.width = [streamSettings.width intValue];
+    // A landscape-only iPhone can have a portrait size stored from before
+    // the interface orientation settled (window.frame is portrait). Swap it
+    // so the host is asked for a landscape picture.
+#if TARGET_OS_TV
+    BOOL landscapeOnlyPhone = NO;
+#else
+    BOOL landscapeOnlyPhone = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone;
+#endif
+    CGSize streamSize = [StreamVideoLayout streamSizeForWidth:[streamSettings.width intValue]
+                                                         height:[streamSettings.height intValue]
+                                                  landscapeOnly:landscapeOnlyPhone];
+    _streamConfig.height = (int)streamSize.height;
+    _streamConfig.width = (int)streamSize.width;
 #if TARGET_OS_TV
     // Don't allow streaming 4K on the Apple TV HD
     struct utsname systemInfo;
@@ -998,6 +1010,9 @@ static NSMutableSet* hostList;
     _boxArtCache = [[NSCache alloc] init];
         
     hostScrollView = [[ComputerScrollView alloc] init];
+    hostScrollView.accessibilityIdentifier = @"twilight.hosts";
+    hostScrollView.isAccessibilityElement = YES;
+    hostScrollView.accessibilityLabel = @"Hosts";
     hostScrollView.frame = CGRectMake(0, 0, self.view.frame.size.width, self.view.frame.size.height / 2);
     hostScrollView.delaysContentTouches = NO;
     hostScrollView.backgroundColor = [UIColor clearColor];
@@ -1010,6 +1025,7 @@ static NSMutableSet* hostList;
 
     self.collectionView.backgroundColor = [TwilightTheme background];
     self.collectionView.indicatorStyle = UIScrollViewIndicatorStyleDefault;
+    self.collectionView.accessibilityIdentifier = @"twilight.apps";
     [self.collectionView registerClass:[TwilightLibraryHeader class]
              forSupplementaryViewOfKind:UICollectionElementKindSectionHeader
                     withReuseIdentifier:@"TwilightLibraryHeader"];
@@ -1084,7 +1100,9 @@ static NSMutableSet* hostList;
 
 -(void)beginForegroundRefresh
 {
-    if ([self screenshotFixtureActive]) {
+    if ([self screenshotFixtureActive] || getenv("TWILIGHT_UITEST") != NULL) {
+        // Discovery polling never goes idle. XCUITest then waits forever
+        // before the first tap, which is how a simulator job ran for hours.
         return;
     }
     if (!_background) {
@@ -1200,6 +1218,7 @@ static NSMutableSet* hostList;
                                                object: nil];
 #endif
     [self applyScreenshotFixtureIfRequested];
+    [self applyUITestFixtureIfRequested];
 }
 
 - (void)viewWillAppear:(BOOL)animated
@@ -1931,6 +1950,7 @@ static NSMutableSet* hostList;
         return;
     }
     _shellBar = [[UIView alloc] init];
+    _shellBar.accessibilityIdentifier = @"twilight.shell";
     _shellBar.backgroundColor = [TwilightTheme background];
 
     UIImageView *mark = [[UIImageView alloc] initWithImage:[TwilightTheme symbolNamed:@"moon.stars" pointSize:22]];
@@ -1968,6 +1988,7 @@ static NSMutableSet* hostList;
         }
     }];
     _shellHostButton.layer.cornerRadius = 12;
+    _shellHostButton.accessibilityIdentifier = @"twilight.hostButton";
     _shellHostButton.hidden = [self twilightUsesHostSidebar];
     _shellHostButton.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     _shellHostButton.titleLabel.adjustsFontSizeToFitWidth = YES;
@@ -1978,6 +1999,8 @@ static NSMutableSet* hostList;
         [weakSelf showSettingsSheet];
     }];
     gear.tag = 3;
+    gear.accessibilityIdentifier = @"twilight.settingsButton";
+    gear.accessibilityLabel = @"Settings";
     [gear setImage:[TwilightTheme symbolNamed:@"gearshape" pointSize:16] forState:UIControlStateNormal];
     gear.tintColor = [TwilightTheme ink];
     gear.layer.cornerRadius = 18;
@@ -2010,6 +2033,7 @@ static NSMutableSet* hostList;
                                                                                                 action:@selector(closeSettingsSheet)];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:settings];
     nav.modalPresentationStyle = UIModalPresentationPageSheet;
+    nav.view.accessibilityIdentifier = @"twilight.settings";
     [TwilightTheme applyToNavigationBar:nav.navigationBar];
     if (@available(iOS 15.0, *)) {
         UISheetPresentationController *sheet = nav.sheetPresentationController;
@@ -2103,6 +2127,12 @@ static NSMutableSet* hostList;
         return;
     }
     UIView *card = [self presentCardTitled:@"Hosts"];
+    // The host list is a scroll view. On a phone it lives in this card, and
+    // XCUITest does not see a scroll view reliably. The card is the surface
+    // the test measures.
+    card.accessibilityIdentifier = @"twilight.hosts";
+    hostScrollView.accessibilityIdentifier = @"twilight.hostrows";
+    hostScrollView.isAccessibilityElement = NO;
     _hostSwitcherOpen = YES;
     hostScrollView.backgroundColor = [UIColor clearColor];
     hostScrollView.layer.cornerRadius = 0;
@@ -2110,6 +2140,9 @@ static NSMutableSet* hostList;
     [card addSubview:hostScrollView];
     [self updateHosts];
     [self layoutTwilightChrome];
+    if (hostScrollView.bounds.size.width < 8) {
+        hostScrollView.frame = CGRectMake(12, 56, MAX(200, card.bounds.size.width - 24), MAX(120, card.bounds.size.height - 72));
+    }
 }
 
 - (UIButton *)managerButton:(NSString *)title symbol:(NSString *)symbol danger:(BOOL)danger action:(TwilightAction)action {
@@ -2527,6 +2560,43 @@ static NSMutableSet* hostList;
 #endif
 }
 
+- (void)applyUITestFixtureIfRequested {
+#if DEBUG && !TARGET_OS_TV
+    const char *mode = getenv("TWILIGHT_UITEST");
+    if (mode == NULL || getenv("TWILIGHT_SCREENSHOT") != NULL) {
+        return;
+    }
+    NSString *which = [NSString stringWithUTF8String:mode];
+    [_discMan stopDiscovery];
+    if ([which isEqualToString:@"library"] || [which isEqualToString:@"settings"] || [which isEqualToString:@"hosts"]) {
+        [self installScreenshotLibrary];
+        if ([which isEqualToString:@"settings"]) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self showSettingsSheet];
+            });
+        }
+        else if ([which isEqualToString:@"hosts"] && ![self twilightUsesHostSidebar]) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self presentHostSwitcher];
+            });
+        }
+    }
+    else if ([which isEqualToString:@"stream"] || [which isEqualToString:@"keyboard"]) {
+        StreamConfiguration *config = [[StreamConfiguration alloc] init];
+        config.appName = @"Desktop";
+        config.host = @"192.0.2.10";
+        config.width = 1920;
+        config.height = 1080;
+        config.frameRate = 60;
+        config.bitRate = 20000;
+        _streamConfig = config;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self performSegueWithIdentifier:@"createStreamFrame" sender:nil];
+        });
+    }
+#endif
+}
+
 - (void)applyScreenshotFixtureIfRequested {
 #if DEBUG && !TARGET_OS_TV
     const char *mode = getenv("TWILIGHT_SCREENSHOT");
@@ -2603,7 +2673,7 @@ static NSMutableSet* hostList;
         [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
         [self presentViewController:alert animated:NO completion:nil];
     }
-    else if ([which isEqualToString:@"stream"] || [which isEqualToString:@"returnstream"]) {
+    else if ([which isEqualToString:@"stream"] || [which isEqualToString:@"returnstream"] || [which isEqualToString:@"video"]) {
         StreamConfiguration *config = [[StreamConfiguration alloc] init];
         config.appName = @"Desktop";
         config.host = @"192.0.2.10";

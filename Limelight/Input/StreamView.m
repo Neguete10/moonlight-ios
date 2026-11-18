@@ -14,6 +14,14 @@
 #import "RelativeTouchHandler.h"
 #import "AbsoluteTouchHandler.h"
 #import "KeyboardInputField.h"
+#import "StreamVideoLayout.h"
+#if !TARGET_OS_TV
+#import "TwilightOnScreenKeyboard.h"
+#endif
+#import "TwilightInputLog.h"
+#import "Utils.h"
+#import <AVFoundation/AVFoundation.h>
+#import <objc/runtime.h>
 
 static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
 
@@ -44,6 +52,10 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
     BOOL hasUserInteracted;
     
     NSDictionary<NSString *, NSNumber *> *dictCodes;
+    BOOL keyboardOrientationWait;
+    UILabel *keyLogLabel;
+    UIView *videoProbe;
+    UIView *streamSurface;
 }
 
 - (void) setupStreamView:(ControllerSupport*)controllerSupport
@@ -60,6 +72,9 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
     [keyInputField setAutocorrectionType:UITextAutocorrectionTypeNo];
     [keyInputField setAutocapitalizationType:UITextAutocapitalizationTypeNone];
     [keyInputField setSpellCheckingType:UITextSpellCheckingTypeNo];
+    if ([TwilightInputLog isEnabled]) {
+        keyInputField.accessibilityIdentifier = @"twilight.keyfield";
+    }
     [self addSubview:keyInputField];
     
 #if TARGET_OS_TV
@@ -76,6 +91,10 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
     
     onScreenControls = [[OnScreenControls alloc] initWithView:self controllerSup:controllerSupport streamConfig:streamConfig];
     OnScreenControlsLevel level = (OnScreenControlsLevel)[settings.onscreenControls integerValue];
+    if ([TwilightInputLog isEnabled]) {
+        // The UI test's three-finger tap has to reach the keyboard gesture.
+        level = OnScreenControlsLevelOff;
+    }
     if (settings.absoluteTouchMode) {
         Log(LOG_I, @"On-screen controls disabled in absolute touch mode");
         [onScreenControls setLevel:OnScreenControlsLevelOff];
@@ -127,6 +146,81 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
     // This is critical to ensure keyboard events are delivered to this
     // StreamView and not our parent UIView, especially on tvOS.
     [self becomeFirstResponder];
+
+    self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    if ([TwilightInputLog isEnabled]) {
+        [TwilightInputLog reset];
+        keyLogLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 4, 4)];
+        keyLogLabel.accessibilityIdentifier = @"twilight.keylog";
+        keyLogLabel.isAccessibilityElement = YES;
+        keyLogLabel.userInteractionEnabled = NO;
+        keyLogLabel.textColor = [UIColor clearColor];
+        [self addSubview:keyLogLabel];
+        __weak UILabel *label = keyLogLabel;
+        [TwilightInputLog setUpdateHandler:^(NSString *text) {
+            label.accessibilityLabel = text;
+            label.accessibilityValue = text;
+        }];
+    }
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    [self layoutVideoLayer];
+    if (isInputingText) {
+        [self layoutKeyboardField];
+        [self layoutKeyboardAccessory];
+    }
+}
+
+- (void)layoutVideoLayer {
+    if (streamAspectRatio <= 0.01f || self.bounds.size.width < 1.0f || self.bounds.size.height < 1.0f) {
+        return;
+    }
+    CGRect videoRect = [StreamVideoLayout videoRectForBounds:self.bounds streamAspectRatio:streamAspectRatio];
+    for (CALayer *layer in self.layer.sublayers) {
+        if (![layer isKindOfClass:[AVSampleBufferDisplayLayer class]]) {
+            continue;
+        }
+        // Anchor is the center. Position is the rect's midpoint in this view,
+        // and the transform stays identity so a stale rotation cannot stick.
+        layer.affineTransform = CGAffineTransformIdentity;
+        layer.bounds = CGRectMake(0, 0, videoRect.size.width, videoRect.size.height);
+        layer.position = CGPointMake(CGRectGetMidX(videoRect), CGRectGetMidY(videoRect));
+    }
+    if ([TwilightInputLog isEnabled]) {
+        if (streamSurface == nil) {
+            streamSurface = [[UIView alloc] init];
+            streamSurface.accessibilityIdentifier = @"twilight.stream";
+            streamSurface.isAccessibilityElement = YES;
+            streamSurface.userInteractionEnabled = NO;
+            streamSurface.backgroundColor = [UIColor clearColor];
+            [self addSubview:streamSurface];
+        }
+        streamSurface.frame = self.bounds;
+        if (videoProbe == nil) {
+            videoProbe = [[UIView alloc] init];
+            videoProbe.accessibilityIdentifier = @"twilight.video";
+            videoProbe.isAccessibilityElement = YES;
+            videoProbe.userInteractionEnabled = NO;
+            videoProbe.backgroundColor = [UIColor clearColor];
+            [self addSubview:videoProbe];
+        }
+        videoProbe.frame = videoRect;
+        videoProbe.accessibilityLabel = [NSString stringWithFormat:@"video %.1f %.1f %.1f %.1f",
+                                          videoRect.origin.x, videoRect.origin.y,
+                                          videoRect.size.width, videoRect.size.height];
+    }
+}
+
+- (void)layoutKeyboardField {
+    keyInputField.frame = CGRectMake(0, MAX(0, self.bounds.size.height - 1.0), MAX(self.bounds.size.width, 1.0), 1.0);
+}
+
+- (void)layoutKeyboardAccessory {
+#if !TARGET_OS_TV
+    [keyInputField.inputAccessoryView setNeedsLayout];
+#endif
 }
 
 - (void)startInteractionTimer {
@@ -358,53 +452,82 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
                 isInputingText = false;
             } else {
                 Log(LOG_D, @"Opening the keyboard");
-                // Prepare the textbox used to capture keyboard events.
-                keyInputField.delegate = self;
-                keyInputField.text = @"0";
-#if !TARGET_OS_TV
-                // Prepare the toolbar above the keyboard for more options
-                UIToolbar *customToolbarView = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, self.bounds.size.width, 44)];
-                
-                UIBarButtonItem *doneBarButton = [self createButtonWithImageNamed:@"DoneIcon.png" backgroundColor:[UIColor clearColor] target:self action:@selector(toolbarButtonClicked:) keyCode:0x00 isToggleable:NO];
-                UIBarButtonItem *windowsBarButton = [self createButtonWithImageNamed:@"WindowsIcon.png" backgroundColor:[UIColor blackColor] target:self action:@selector(toolbarButtonClicked:) keyCode:0x5B isToggleable:YES];
-                UIBarButtonItem *tabBarButton = [self createButtonWithImageNamed:@"TabIcon.png" backgroundColor:[UIColor blackColor] target:self action:@selector(toolbarButtonClicked:) keyCode:0x09 isToggleable:NO];
-                UIBarButtonItem *shiftBarButton = [self createButtonWithImageNamed:@"ShiftIcon.png" backgroundColor:[UIColor blackColor] target:self action:@selector(toolbarButtonClicked:) keyCode:0xA0 isToggleable:YES];
-                UIBarButtonItem *escapeBarButton = [self createButtonWithImageNamed:@"EscapeIcon.png" backgroundColor:[UIColor blackColor] target:self action:@selector(toolbarButtonClicked:) keyCode:0x1B isToggleable:NO];
-                UIBarButtonItem *controlBarButton = [self createButtonWithImageNamed:@"ControlIcon.png" backgroundColor:[UIColor blackColor] target:self action:@selector(toolbarButtonClicked:) keyCode:0xA2 isToggleable:YES];
-                UIBarButtonItem *altBarButton = [self createButtonWithImageNamed:@"AltIcon.png" backgroundColor:[UIColor blackColor] target:self action:@selector(toolbarButtonClicked:) keyCode:0xA4 isToggleable:YES];
-                UIBarButtonItem *deleteBarButton = [self createButtonWithImageNamed:@"DeleteIcon.png" backgroundColor:[UIColor blackColor] target:self action:@selector(toolbarButtonClicked:) keyCode:0x2E isToggleable:NO];
-                UIBarButtonItem *flexibleSpace = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
-                
-                [customToolbarView setItems:[NSArray arrayWithObjects:doneBarButton, windowsBarButton, escapeBarButton, tabBarButton, shiftBarButton, controlBarButton, altBarButton, deleteBarButton, flexibleSpace, nil]];
-                keyInputField.inputAccessoryView = customToolbarView;
-#endif
-                [keyInputField becomeFirstResponder];
-                [keyInputField addTarget:self action:@selector(onKeyboardPressed:) forControlEvents:UIControlEventEditingChanged];
-                
-                // Undo causes issues for our state management, so turn it off
-                [keyInputField.undoManager disableUndoRegistration];
-                
-                isInputingText = true;
+                [self openOnScreenKeyboard];
             }
         }
     }
 }
 
-- (UIBarButtonItem *)createButtonWithImageNamed:(NSString *)imageName backgroundColor:(UIColor *)backgroundColor target:(id)target action:(SEL)action keyCode:(NSInteger)keyCode isToggleable:(BOOL)isToggleable {
-    UIImage *image = [UIImage imageNamed:imageName];
-    UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
-    [button setImage:image forState:UIControlStateNormal];
-    button.frame = CGRectMake(0, 0, 30, 30);
-    button.imageView.contentMode = UIViewContentModeScaleAspectFit;
-    button.imageView.backgroundColor = backgroundColor;
-    button.imageView.layer.cornerRadius = 10.0;
-    button.imageEdgeInsets = UIEdgeInsetsMake(6, 6, 6, 6);
-    [button addTarget:target action:action forControlEvents:UIControlEventTouchUpInside];
-    objc_setAssociatedObject(button, "keyCode", @(keyCode), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    objc_setAssociatedObject(button, "isToggleable", @(isToggleable), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    objc_setAssociatedObject(button, "isOn", @(NO), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    UIBarButtonItem *barButton = [[UIBarButtonItem alloc] initWithCustomView:button];
-    return barButton;
+- (BOOL)phoneInterfaceNeedsLandscape {
+#if TARGET_OS_TV
+    return NO;
+#else
+    if (UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPhone) {
+        return NO;
+    }
+    if (self.bounds.size.height > self.bounds.size.width + 1.0) {
+        return YES;
+    }
+    UIWindowScene *scene = self.window.windowScene;
+    if (scene == nil) {
+        return NO;
+    }
+    return !UIInterfaceOrientationIsLandscape(scene.interfaceOrientation);
+#endif
+}
+
+- (UIViewController *)owningViewController {
+    UIResponder *responder = self;
+    while (responder != nil) {
+        if ([responder isKindOfClass:[UIViewController class]]) {
+            return (UIViewController *)responder;
+        }
+        responder = responder.nextResponder;
+    }
+    return nil;
+}
+
+- (void)openOnScreenKeyboard {
+#if !TARGET_OS_TV
+    // The system keyboard follows the interface orientation. Opening it while
+    // the phone is still mid-rotation lays the keyboard out in portrait, which
+    // clips keys off the landscape screen.
+    if ([self phoneInterfaceNeedsLandscape] && !keyboardOrientationWait) {
+        keyboardOrientationWait = YES;
+        [self.superview layoutIfNeeded];
+        [Utils twilightRequestGeometryUpdateForViewController:[self owningViewController] orientations:UIInterfaceOrientationMaskLandscape];
+        __weak StreamView *weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            StreamView *strongSelf = weakSelf;
+            if (strongSelf == nil) {
+                return;
+            }
+            strongSelf->keyboardOrientationWait = NO;
+            [strongSelf openOnScreenKeyboardNow];
+        });
+        return;
+    }
+#endif
+    [self openOnScreenKeyboardNow];
+}
+
+- (void)openOnScreenKeyboardNow {
+    [self layoutIfNeeded];
+    [self layoutKeyboardField];
+    keyInputField.delegate = self;
+    keyInputField.text = @"0";
+#if !TARGET_OS_TV
+    CGFloat width = [TwilightOnScreenKeyboard accessoryWidthForView:self];
+    keyInputField.inputAccessoryView = [TwilightOnScreenKeyboard toolbarWithWidth:width target:self action:@selector(toolbarButtonClicked:)];
+    // The system shortcut bar stacks on top of the accessory and crowds the
+    // upstream keys off a landscape iPhone keyboard.
+    keyInputField.inputAssistantItem.leadingBarButtonGroups = @[];
+    keyInputField.inputAssistantItem.trailingBarButtonGroups = @[];
+#endif
+    [keyInputField becomeFirstResponder];
+    [keyInputField addTarget:self action:@selector(onKeyboardPressed:) forControlEvents:UIControlEventEditingChanged];
+    [keyInputField.undoManager disableUndoRegistration];
+    isInputingText = true;
 }
 
 - (void)toolbarButtonClicked:(UIButton *)sender {
@@ -414,34 +537,45 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
         isOn = !isOn;
         // Update the button's appearance based on its new state
         if (isOn) {
-            sender.imageView.backgroundColor = [UIColor lightGrayColor];
+            sender.backgroundColor = [UIColor lightGrayColor];
         } else {
-            sender.imageView.backgroundColor = [UIColor blackColor];
+            sender.backgroundColor = [UIColor blackColor];
         }
     }
     // Update the new on/off state of the button
     objc_setAssociatedObject(sender, "isOn", @(isOn), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     // Get the keyCode parameter and convert to short for key press event
     short keyCode = [objc_getAssociatedObject(sender, "keyCode") shortValue];
-    // Close keyboard if done button clicked
-    if (!keyCode) {
-        [keyInputField resignFirstResponder];
+    NSString *keyName = objc_getAssociatedObject(sender, "keyName");
+    // Done is key code 0. Resign the field and end editing on the stream
+    // view so a landscape iPhone actually drops the keyboard.
+    if (keyCode == 0) {
         isInputingText = false;
+        BOOL resigned = [keyInputField resignFirstResponder];
+        if (!resigned || [keyInputField isFirstResponder]) {
+            [self endEditing:YES];
+            [keyInputField resignFirstResponder];
+        }
+        return;
     }
     else {
         // Send key press event using keyCode parameter, toggle if necessary
         if (isToggleable){
             if (isOn){
+                [TwilightInputLog recordKeyCode:keyCode action:KEY_ACTION_DOWN modifiers:0 name:keyName];
                 LiSendKeyboardEvent(keyCode, KEY_ACTION_DOWN, 0);
                 [keysDown addObject:@(keyCode)];
             } else {
+                [TwilightInputLog recordKeyCode:keyCode action:KEY_ACTION_UP modifiers:0 name:keyName];
                 LiSendKeyboardEvent(keyCode, KEY_ACTION_UP, 0);
                 [keysDown removeObject:@(keyCode)];
             }
         }
         else {
+            [TwilightInputLog recordKeyCode:keyCode action:KEY_ACTION_DOWN modifiers:0 name:keyName];
             LiSendKeyboardEvent(keyCode, KEY_ACTION_DOWN, 0);
             usleep(50 * 1000);
+            [TwilightInputLog recordKeyCode:keyCode action:KEY_ACTION_UP modifiers:0 name:keyName];
             LiSendKeyboardEvent(keyCode, KEY_ACTION_UP, 0);
         }
     }
@@ -773,8 +907,10 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField {
     // This method is called when the "Return" key is pressed.
+    [TwilightInputLog recordKeyCode:0x0d action:KEY_ACTION_DOWN modifiers:0 name:@"Return"];
     LiSendKeyboardEvent(0x0d, KEY_ACTION_DOWN, 0);
     usleep(50 * 1000);
+    [TwilightInputLog recordKeyCode:0x0d action:KEY_ACTION_UP modifiers:0 name:@"Return"];
     LiSendKeyboardEvent(0x0d, KEY_ACTION_UP, 0);
     return NO;
 }
@@ -791,8 +927,10 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         // If the text became empty, we know the user pressed the backspace key.
         if ([inputText isEqual:@""]) {
+            [TwilightInputLog recordKeyCode:0x08 action:KEY_ACTION_DOWN modifiers:0 name:@"Backspace"];
             LiSendKeyboardEvent(0x08, KEY_ACTION_DOWN, 0);
             usleep(50 * 1000);
+            [TwilightInputLog recordKeyCode:0x08 action:KEY_ACTION_UP modifiers:0 name:@"Backspace"];
             LiSendKeyboardEvent(0x08, KEY_ACTION_UP, 0);
         } else {
             // Character 0 will be our known sentinel value
@@ -845,9 +983,11 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
         if (event.modifier != 0) {
             LiSendKeyboardEvent(event.modifierKeycode, KEY_ACTION_DOWN, event.modifier);
         }
+        [TwilightInputLog recordKeyCode:event.keycode action:KEY_ACTION_DOWN modifiers:event.modifier name:nil];
         // Let the host know these are not (necessarily) normalized to US English scancodes
         LiSendKeyboardEvent2(event.keycode, KEY_ACTION_DOWN, event.modifier, SS_KBE_FLAG_NON_NORMALIZED);
         usleep(50 * 1000);
+        [TwilightInputLog recordKeyCode:event.keycode action:KEY_ACTION_UP modifiers:event.modifier name:nil];
         LiSendKeyboardEvent2(event.keycode, KEY_ACTION_UP, event.modifier, SS_KBE_FLAG_NON_NORMALIZED);
         if (event.modifier != 0) {
             LiSendKeyboardEvent(event.modifierKeycode, KEY_ACTION_UP, event.modifier);

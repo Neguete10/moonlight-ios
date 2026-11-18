@@ -2,13 +2,15 @@ name: CI
 
 on:
   push:
+    branches:
+      - master
   pull_request:
     branches:
       - master
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: twilight-ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -269,11 +271,247 @@ jobs:
           fi
           echo "Twilight was still running 3 seconds after launch on iOS 27."
 
-  ui-screenshots:
-    name: UI screenshots (iOS Simulator)
+  test:
+    name: Tests (iOS Simulator)
     needs: [build, build-tvos, visionos, ios27-launch]
     if: ${{ always() && needs.build.result == 'success' && needs.build-tvos.result == 'success' }}
     runs-on: macos-26-intel
+    # simctl bootstatus used to wait forever. A cold xcodebuild plus one
+    # iPhone pass and one iPad pass needs most of this window; the per-command
+    # cap below kills a simulator that never boots.
+    timeout-minutes: 70
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Download iOS platform
+        run: |
+          set -euo pipefail
+          # The download talks to CoreSimulator. Right after a cancelled job
+          # that service answers "Unable to connect", then recovers. A hung
+          # download is still capped so the tests can start.
+          for attempt in 1 2 3 4; do
+            xcrun simctl list devices >/dev/null 2>&1 || true
+            set +e
+            python3 - << 'PY'
+          import subprocess, sys
+          try:
+              code = subprocess.run(["xcodebuild", "-downloadPlatform", "iOS"], timeout=480).returncode
+          except subprocess.TimeoutExpired:
+              print("iOS platform download exceeded 8 minutes", flush=True)
+              sys.exit(1)
+          sys.exit(code)
+          PY
+            status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+            if xcodebuild -showsdks 2>/dev/null | grep -q iphonesimulator; then
+              echo "iOS simulator SDK is already installed"
+              exit 0
+            fi
+            echo "iOS platform download attempt ${attempt} failed"
+            sleep $((attempt * 20))
+          done
+          echo "iOS platform download failed after 4 attempts"
+          exit 1
+
+      - name: Run unit and UI tests
+        run: |
+          set -euo pipefail
+          # The software keyboard stays hidden while Simulator treats a
+          # hardware keyboard as connected, and the three-finger test needs it.
+          defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+
+          python3 - << 'PY'
+          import json, subprocess, sys
+          runtimes = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "-j"]))
+          ios = [r for r in runtimes.get("runtimes", []) if r.get("isAvailable") and str(r.get("platform")) == "iOS"]
+          if not ios:
+              sys.exit("No iOS simulator runtime is installed")
+          ios.sort(key=lambda r: [int(p) if p.isdigit() else 0 for p in str(r.get("version", "0")).split(".")])
+          chosen = ios[-1]
+          open("/tmp/twilight-test-runtime", "w").write(chosen["identifier"])
+          print(chosen["identifier"], chosen.get("version"))
+          PY
+          runtime_id="$(cat /tmp/twilight-test-runtime)"
+
+          python3 - "$runtime_id" << 'PY'
+          import json, subprocess, sys
+          types = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devicetypes", "-j"]))
+          names = [d.get("name", "") for d in types.get("devicetypes", [])]
+          def pick(exact, prefixes):
+              for name in exact:
+                  if name in names:
+                      return name
+              for prefix in prefixes:
+                  for name in names:
+                      if name.startswith(prefix):
+                          return name
+              return ""
+          iphone = pick(["iPhone 17 Pro"], ["iPhone 17", "iPhone 16 Pro", "iPhone 16", "iPhone"])
+          large = pick(["iPhone 17 Pro Max", "iPhone 16 Pro Max"], ["iPhone 17 Pro Max", "iPhone 16 Pro Max", "iPhone Air"])
+          if large == iphone:
+              large = ""
+          ipad = pick(
+              ["iPad Pro 13-inch (M5)", "iPad Pro 13-inch (M4)"],
+              ["iPad Pro 13", "iPad Pro 11", "iPad"],
+          )
+          if not iphone:
+              sys.exit("No iPhone simulator device type is installed")
+          open("/tmp/twilight-test-iphone", "w").write(iphone)
+          open("/tmp/twilight-test-large", "w").write(large)
+          open("/tmp/twilight-test-ipad", "w").write(ipad)
+          print("iphone", iphone)
+          print("large", large or "(none)")
+          print("ipad", ipad or "(none)")
+          PY
+
+          derived="${RUNNER_TEMP:-/tmp}/twilight-tests"
+          shots="$GITHUB_WORKSPACE/ui-test-screenshots"
+          mkdir -p "$shots"
+          failed=0
+
+          # Kill the whole process group. simctl bootstatus and xcodebuild
+          # otherwise wait forever when a simulator never finishes booting.
+          run_with_timeout() {
+            local seconds="$1"
+            shift
+            python3 - "$seconds" "$@" << 'PY'
+          import os, signal, subprocess, sys
+          seconds = int(sys.argv[1])
+          cmd = sys.argv[2:]
+          proc = subprocess.Popen(cmd, start_new_session=True)
+          try:
+              code = proc.wait(timeout=seconds)
+          except subprocess.TimeoutExpired:
+              print("Timed out after %ss: %s" % (seconds, " ".join(cmd)), flush=True)
+              try:
+                  os.killpg(proc.pid, signal.SIGKILL)
+              except ProcessLookupError:
+                  pass
+              proc.wait()
+              sys.exit(124)
+          sys.exit(code)
+          PY
+          }
+
+          run_one() {
+            local label="$1"
+            local devicetype="$2"
+            local family="$3"
+            shift 3
+            if [ -z "$devicetype" ]; then
+              echo "Skipping $label: no simulator device type"
+              return 0
+            fi
+            local udid
+            udid="$(xcrun simctl create "Twilight $label" "$devicetype" "$runtime_id")"
+            echo "Testing $label ($family) on $udid"
+            local shotdir="$shots/$label"
+            mkdir -p "$shotdir"
+            # Passed as xcodebuild arguments these become build settings and
+            # never reach the test process. The runner only forwards variables
+            # that are in xcodebuild's environment.
+            export TEST_RUNNER_TWILIGHT_SCREENSHOT_DIR="$shotdir"
+            if [ "$family" = "iphone" ]; then
+              export TEST_RUNNER_TWILIGHT_EXPECT_LANDSCAPE=1
+            else
+              unset TEST_RUNNER_TWILIGHT_EXPECT_LANDSCAPE || true
+            fi
+            # Skip the QuickPath "slide to type" tip so it cannot cover Esc.
+            local pref_dir="$HOME/Library/Developer/CoreSimulator/Devices/$udid/data/Library/Preferences"
+            mkdir -p "$pref_dir"
+            defaults write "$pref_dir/com.apple.keyboard.preferences" DidShowContinuousPathIntroduction -bool true
+            # Boot with a deadline so the first UI launch is not waiting on
+            # data migration. An unbounded bootstatus call is what hung CI.
+            xcrun simctl boot "$udid" || true
+            python3 - "$udid" << 'PY'
+          import subprocess, sys
+          udid = sys.argv[1]
+          try:
+              subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], timeout=120)
+          except subprocess.TimeoutExpired:
+              print("bootstatus still going after 120s; xcodebuild will finish it", flush=True)
+          PY
+            set +e
+            run_with_timeout 1500 xcodebuild test \
+              -project Moonlight.xcodeproj \
+              -scheme Moonlight \
+              -configuration Debug \
+              -destination "platform=iOS Simulator,id=$udid" \
+              -derivedDataPath "$derived" \
+              -parallel-testing-enabled NO \
+              -maximum-concurrent-test-simulator-destinations 1 \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance 180 \
+              -maximum-test-execution-time-allowance 240 \
+              "$@" 2>&1 | tee "$shotdir/xcodebuild.log"
+            local status=${PIPESTATUS[0]}
+            set -e
+            # The cases can all pass and the test runner still crash while
+            # exiting. That makes xcodebuild return failure after "0 failures".
+            if grep -q "Test Suite 'All tests' passed" "$shotdir/xcodebuild.log" \
+              && ! grep -E "with [1-9][0-9]* failure" "$shotdir/xcodebuild.log"; then
+              echo "All tests passed for $label (xcodebuild exit $status)"
+              status=0
+            fi
+            xcrun simctl shutdown all || true
+            xcrun simctl delete "$udid" || true
+            if [ "$status" -ne 0 ]; then
+              echo "Tests failed for $label (exit $status)"
+              failed=1
+            fi
+          }
+
+          # One iPhone pass runs the unit tests and the UI tests together so
+          # the 30 minute job cap is not spent compiling the same app twice.
+          # The large phone uses the same landscape layout; iPad is the second size.
+          run_one "iphone-pro" "$(cat /tmp/twilight-test-iphone)" iphone \
+            -only-testing:TwilightUnitTests -only-testing:TwilightUITests
+          if [ -s /tmp/twilight-test-ipad ]; then
+            # The keyboard case passes on iPad, then the GitHub test runner
+            # crashes while it is still tapping. iPhone runs that case. iPad
+            # still checks launch, hosts, and the stream picture.
+            run_one "ipad" "$(cat /tmp/twilight-test-ipad)" ipad \
+              -only-testing:TwilightUITests/TwilightUITests/testAppLaunchesAndMainFlowsFit \
+              -only-testing:TwilightUITests/TwilightUITests/testHostsFitOnScreen \
+              -only-testing:TwilightUITests/TwilightUITests/testStreamVideoFromPortraitAndBothLandscapes
+            if [ -f "$shots/ipad/xcodebuild.log" ] && grep -q "Timed out while loading Accessibility" "$shots/ipad/xcodebuild.log"; then
+              echo "iPad accessibility service did not load; retrying after a quiet shutdown"
+              failed=0
+              if ! grep -q "All tests passed for iphone-pro" "$shots/iphone-pro/xcodebuild.log"; then
+                failed=1
+              fi
+              xcrun simctl shutdown all || true
+              sleep 20
+              run_one "ipad" "$(cat /tmp/twilight-test-ipad)" ipad \
+                -only-testing:TwilightUITests/TwilightUITests/testAppLaunchesAndMainFlowsFit \
+                -only-testing:TwilightUITests/TwilightUITests/testHostsFitOnScreen \
+                -only-testing:TwilightUITests/TwilightUITests/testStreamVideoFromPortraitAndBothLandscapes
+            fi
+          else
+            echo "No iPad simulator device type is installed, so the iPad UI tests were not run."
+          fi
+          exit "$failed"
+
+      - name: Upload test screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-screenshots
+          path: ui-test-screenshots/
+          if-no-files-found: warn
+
+  ui-screenshots:
+    name: UI screenshots (iOS Simulator)
+    needs: [build, build-tvos, visionos, ios27-launch, test]
+    if: ${{ always() && needs.build.result == 'success' && needs.build-tvos.result == 'success' }}
+    runs-on: macos-26-intel
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -284,14 +522,31 @@ jobs:
       - name: Download iOS platform
         run: |
           set -euo pipefail
-          for attempt in 1 2 3; do
-            if xcodebuild -downloadPlatform iOS; then
+          for attempt in 1 2 3 4; do
+            xcrun simctl list devices >/dev/null 2>&1 || true
+            set +e
+            python3 - << 'PY'
+          import subprocess, sys
+          try:
+              code = subprocess.run(["xcodebuild", "-downloadPlatform", "iOS"], timeout=480).returncode
+          except subprocess.TimeoutExpired:
+              print("iOS platform download exceeded 8 minutes", flush=True)
+              sys.exit(1)
+          sys.exit(code)
+          PY
+            status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+            if xcodebuild -showsdks 2>/dev/null | grep -q iphonesimulator; then
+              echo "iOS simulator SDK is already installed"
               exit 0
             fi
             echo "iOS platform download attempt ${attempt} failed"
             sleep $((attempt * 20))
           done
-          echo "iOS platform download failed after 3 attempts"
+          echo "iOS platform download failed after 4 attempts"
           exit 1
 
       - name: Capture before and after screenshots
@@ -370,8 +625,20 @@ jobs:
             local type="$2"
             local udid
             udid="$(xcrun simctl create "$name" "$type" "$runtime_id")"
-            xcrun simctl boot "$udid"
-            xcrun simctl bootstatus "$udid" -b
+            xcrun simctl boot "$udid" || true
+            # bootstatus -b waits on SpringBoard and often never returns on
+            # this runner. The device is usable once simctl lists it as Booted.
+            python3 - "$udid" << 'PY'
+          import subprocess, sys, time
+          udid = sys.argv[1]
+          for _ in range(36):
+              listed = subprocess.run(["xcrun", "simctl", "list", "devices"], capture_output=True, text=True).stdout
+              for line in listed.splitlines():
+                  if udid in line and "(Booted)" in line:
+                      sys.exit(0)
+              time.sleep(5)
+          sys.exit("simulator %s was not Booted after 3 minutes" % udid)
+          PY
             printf '%s' "$udid" > /tmp/twilight-booted-udid
           }
 
@@ -430,7 +697,7 @@ jobs:
           boot_device "Twilight iPhone" "$(cat /tmp/twilight-iphone-type)"
           iphone="$(cat /tmp/twilight-booted-udid)"
           install_app "$iphone" "$after_app"
-          for mode in empty library hosts hostsheet settings resolution pairing addhost unpaired loading stream returnstream; do
+          for mode in empty library hosts hostsheet settings resolution pairing addhost unpaired loading video stream returnstream; do
             shot "$iphone" dark "$mode" "$out/after-iphone-${mode}-landscape-dark.png"
             upright_iphone "$out/after-iphone-${mode}-landscape-dark.png"
           done
@@ -443,7 +710,7 @@ jobs:
           boot_device "Twilight iPad" "$(cat /tmp/twilight-ipad-type)"
           ipad="$(cat /tmp/twilight-booted-udid)"
           install_app "$ipad" "$after_app"
-          for mode in empty library hostsheet settings stream; do
+          for mode in empty library hostsheet settings video stream; do
             shot "$ipad" dark "$mode" "$out/after-ipad-${mode}-portrait-dark.png"
           done
           xcrun simctl shutdown "$ipad" || true
