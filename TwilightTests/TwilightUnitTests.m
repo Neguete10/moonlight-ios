@@ -179,98 +179,19 @@
     XCTAssertEqual(space.keycode, 0x20);
 }
 
-- (void)testMetalFXScaleChoicesRoundTrip {
-    XCTAssertEqual([MetalFXLayout scalePercentForChoiceIndex:0], 50);
-    XCTAssertEqual([MetalFXLayout scalePercentForChoiceIndex:1], 67);
-    XCTAssertEqual([MetalFXLayout scalePercentForChoiceIndex:2], 75);
-    XCTAssertEqual([MetalFXLayout scalePercentForChoiceIndex:3], 0);
-    XCTAssertEqual([MetalFXLayout scalePercentForChoiceIndex:9], 0);
-    XCTAssertEqual([MetalFXLayout choiceIndexForScalePercent:50], 0);
-    XCTAssertEqual([MetalFXLayout choiceIndexForScalePercent:67], 1);
-    XCTAssertEqual([MetalFXLayout choiceIndexForScalePercent:75], 2);
-    XCTAssertEqual([MetalFXLayout choiceIndexForScalePercent:0], 3);
-    XCTAssertEqual([MetalFXLayout normalizedScalePercent:66], 0);
-    XCTAssertEqual([MetalFXLayout choiceIndexForScalePercent:100], 3);
-}
-
-- (void)testMetalFXHostSizeUsesScreenFractionOnALandscapePhone {
-    // iPhone 17 Pro pixels. window.frame still reports the portrait pair.
-    CGSize portraitPixels = CGSizeMake(1206, 2622);
-    CGSize half = [MetalFXLayout hostSizeForNativePixels:portraitPixels
-                                            chosenWidth:1280
-                                           chosenHeight:720
-                                           scalePercent:50
-                                                enabled:YES
-                                          landscapeOnly:YES];
-    XCTAssertEqual(half.width, 1310);
-    XCTAssertEqual(half.height, 602);
-    XCTAssertGreaterThan(half.width, half.height);
-
-    CGSize twoThirds = [MetalFXLayout hostSizeForNativePixels:portraitPixels
-                                                 chosenWidth:3840
-                                                chosenHeight:2160
-                                                scalePercent:67
-                                                     enabled:YES
-                                               landscapeOnly:YES];
-    XCTAssertEqual(twoThirds.width, 1748);
-    XCTAssertEqual(twoThirds.height, 804);
-
-    CGSize threeQuarters = [MetalFXLayout hostSizeForNativePixels:portraitPixels
-                                                     chosenWidth:1920
-                                                    chosenHeight:1080
-                                                    scalePercent:75
-                                                         enabled:YES
-                                                   landscapeOnly:YES];
-    XCTAssertEqual(threeQuarters.width, 1966);
-    XCTAssertEqual(threeQuarters.height, 904);
-
-    CGSize alreadyLandscape = [MetalFXLayout hostSizeForNativePixels:CGSizeMake(2622, 1206)
-                                                         chosenWidth:1280
-                                                        chosenHeight:720
-                                                        scalePercent:50
-                                                             enabled:YES
-                                                       landscapeOnly:YES];
-    XCTAssertEqual(alreadyLandscape.width, 1310);
-    XCTAssertEqual(alreadyLandscape.height, 602);
-}
-
-- (void)testMetalFXHostSizeKeepsTheChosenResolutionWhenUpscalingIsOff {
-    CGSize native = CGSizeMake(1206, 2622);
-    CGSize off = [MetalFXLayout hostSizeForNativePixels:native
-                                           chosenWidth:1920
-                                          chosenHeight:1080
-                                          scalePercent:50
-                                               enabled:NO
-                                         landscapeOnly:YES];
-    XCTAssertEqual(off.width, 1920);
-    XCTAssertEqual(off.height, 1080);
-
-    CGSize chosen = [MetalFXLayout hostSizeForNativePixels:native
-                                              chosenWidth:1280
-                                             chosenHeight:720
-                                             scalePercent:0
-                                                  enabled:YES
-                                            landscapeOnly:YES];
+- (void)testMetalFXKeepsTheChosenResolutionAndUpscalesOnlyWhenTheScreenIsLarger {
+    CGSize chosen = [MetalFXLayout hostSizeForChosenWidth:1280 height:720 landscapeOnly:YES];
     XCTAssertEqual(chosen.width, 1280);
     XCTAssertEqual(chosen.height, 720);
-
-    CGSize storedPortrait = [MetalFXLayout hostSizeForNativePixels:native
-                                                      chosenWidth:720
-                                                     chosenHeight:1280
-                                                     scalePercent:0
-                                                          enabled:YES
-                                                    landscapeOnly:YES];
+    CGSize storedPortrait = [MetalFXLayout hostSizeForChosenWidth:720 height:1280 landscapeOnly:YES];
     XCTAssertEqual(storedPortrait.width, 1280);
     XCTAssertEqual(storedPortrait.height, 720);
 
-    CGSize pad = [MetalFXLayout hostSizeForNativePixels:CGSizeMake(2048, 2732)
-                                           chosenWidth:1280
-                                          chosenHeight:720
-                                          scalePercent:50
-                                               enabled:YES
-                                         landscapeOnly:NO];
-    XCTAssertEqual(pad.width, 1024);
-    XCTAssertEqual(pad.height, 1366);
+    CGSize phone = CGSizeMake(1206, 2622);
+    XCTAssertTrue([MetalFXLayout shouldUpscaleStreamWidth:1280 height:720 screenPixels:phone landscapeOnly:YES]);
+    XCTAssertTrue([MetalFXLayout shouldUpscaleStreamWidth:1920 height:1080 screenPixels:phone landscapeOnly:YES]);
+    XCTAssertFalse([MetalFXLayout shouldUpscaleStreamWidth:3840 height:2160 screenPixels:phone landscapeOnly:YES]);
+    XCTAssertFalse([MetalFXLayout shouldUpscaleStreamWidth:2622 height:1206 screenPixels:phone landscapeOnly:YES]);
 }
 
 - (void)testMetalFXOutputRectFitsAndFlipsForMetal {
@@ -334,22 +255,19 @@
     XCTAssertEqualWithAccuracy(safeBase.width, safe.width, 0.5);
     XCTAssertEqualWithAccuracy(safeBase.height, safe.height, 0.5);
 
-    CGSize halfSafe = [MetalFXLayout hostSizeForNativePixels:safeBase
-                                                 chosenWidth:(NSInteger)llround(safe.width)
-                                                chosenHeight:(NSInteger)llround(safe.height)
-                                                scalePercent:50
-                                                     enabled:YES
+    CGSize safeHost = [MetalFXLayout hostSizeForChosenWidth:(NSInteger)llround(safe.width)
+                                                      height:(NSInteger)llround(safe.height)
                                                landscapeOnly:YES];
-    XCTAssertEqual(halfSafe.width, 1166);
-    XCTAssertEqual(halfSafe.height, 602);
-    CGSize halfFull = [MetalFXLayout hostSizeForNativePixels:full
-                                                 chosenWidth:(NSInteger)llround(full.width)
-                                                chosenHeight:(NSInteger)llround(full.height)
-                                                scalePercent:50
-                                                     enabled:YES
-                                               landscapeOnly:YES];
-    XCTAssertEqual(halfFull.width, 1310);
-    XCTAssertLessThan(halfSafe.width, halfFull.width);
+    XCTAssertEqualWithAccuracy(safeHost.width, safe.width, 0.5);
+    XCTAssertEqualWithAccuracy(safeHost.height, safe.height, 0.5);
+    XCTAssertFalse([MetalFXLayout shouldUpscaleStreamWidth:(NSInteger)llround(safe.width)
+                                                     height:(NSInteger)llround(safe.height)
+                                               screenPixels:full
+                                              landscapeOnly:YES]);
+    XCTAssertFalse([MetalFXLayout shouldUpscaleStreamWidth:(NSInteger)llround(full.width)
+                                                     height:(NSInteger)llround(full.height)
+                                               screenPixels:full
+                                              landscapeOnly:YES]);
 
     CGSize fixedBase = [MetalFXLayout nativeBaseForChosenWidth:1920
                                                          height:1080
@@ -358,14 +276,10 @@
                                                   landscapeOnly:YES];
     XCTAssertEqual(fixedBase.width, 1920);
     XCTAssertEqual(fixedBase.height, 1080);
-    CGSize halfFixed = [MetalFXLayout hostSizeForNativePixels:fixedBase
-                                                  chosenWidth:1920
-                                                 chosenHeight:1080
-                                                 scalePercent:50
-                                                      enabled:YES
-                                                landscapeOnly:YES];
-    XCTAssertEqual(halfFixed.width, 960);
-    XCTAssertEqual(halfFixed.height, 540);
+    XCTAssertTrue([MetalFXLayout shouldUpscaleStreamWidth:1920
+                                                   height:1080
+                                             screenPixels:full
+                                            landscapeOnly:YES]);
 
     CGRect bounds = CGRectMake(0, 0, 874, 402);
     CGFloat safeAspect = safe.width / safe.height;
@@ -400,11 +314,15 @@
     NSString *active = [MetalFXLayout statsLineForMode:MetalFXStatsModeActive input:CGSizeMake(1280, 720) output:CGSizeMake(2622, 1206)];
     XCTAssertEqualObjects(active, @"MetalFX active 1280x720 -> 2622x1206");
     XCTAssertEqualObjects([MetalFXLayout statsLineForMode:MetalFXStatsModeActive input:CGSizeZero output:CGSizeZero], @"MetalFX active");
+    XCTAssertEqualObjects([MetalFXLayout statsLineForMode:MetalFXStatsModeIdle input:CGSizeMake(2622, 1206) output:CGSizeZero], @"MetalFX idle 2622x1206");
+    XCTAssertEqualObjects([MetalFXLayout statsLineForMode:MetalFXStatsModeIdle input:CGSizeZero output:CGSizeZero], @"MetalFX idle");
     NSString *timed = [MetalFXLayout statsLine:@"MetalFX active 1280x720 -> 2334x1206" appendingLatencyMs:4.16];
     XCTAssertEqualObjects(timed, @"MetalFX active 1280x720 -> 2334x1206 +4.2 ms");
     XCTAssertEqualObjects([MetalFXLayout statsLine:@"MetalFX off" appendingLatencyMs:-1], @"MetalFX off");
     NSString *staged = [MetalFXLayout statsLine:@"MetalFX active 1280x720 -> 2334x1206" appendingLatencyMs:73.2 stage:@"drawable"];
     XCTAssertEqualObjects(staged, @"MetalFX active 1280x720 -> 2334x1206 +73.2 ms drawable");
+    NSString *dropped = [MetalFXLayout statsLine:@"MetalFX active 1280x720 -> 2334x1206" appendingLatencyMs:8.2 stage:@"present" droppedFrames:12];
+    XCTAssertEqualObjects(dropped, @"MetalFX active 1280x720 -> 2334x1206 +8.2 ms present drop 12");
     XCTAssertEqualObjects([MetalFXLayout dominantStageNameForQueueMs:0.4
                                                             textureMs:0.2
                                                                 yuvMs:0.3

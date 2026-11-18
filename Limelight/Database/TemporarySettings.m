@@ -50,7 +50,7 @@
     self.enableMicrophone = NO;
     self.quitAppAfter = [[NSUserDefaults standardUserDefaults] boolForKey:@"quitAppAfter"];
     self.metalFXEnabled = [[NSUserDefaults standardUserDefaults] boolForKey:@"metalFXEnabled"];
-    self.metalFXScale = [[NSUserDefaults standardUserDefaults] integerForKey:@"metalFXScale"];
+    self.metalFXScale = 0;
     
     NSInteger _screenSize = [[NSUserDefaults standardUserDefaults] integerForKey:@"streamResolution"];
     switch (_screenSize) {
@@ -95,7 +95,7 @@
     self.enableMicrophone = settings.enableMicrophone;
     self.quitAppAfter = settings.quitAppAfter;
     self.metalFXEnabled = settings.metalFXEnabled;
-    self.metalFXScale = settings.metalFXScale;
+    self.metalFXScale = 0;
 #endif
     if (self.preferredCodec == CODEC_PREF_AV1 && ![Utils av1HardwareDecodeSupported]) {
         // The tvOS settings bundle cannot hide a row per device. A stored AV1

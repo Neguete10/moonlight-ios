@@ -13,7 +13,6 @@
 #import "Utils.h"
 #import "TwilightTheme.h"
 #import "StreamVideoLayout.h"
-#import "MetalFXLayout.h"
 #import "MetalFXFrameRenderer.h"
 #import "Utils.h"
 
@@ -180,7 +179,6 @@
     UISegmentedControl *_microphoneSelector;
     UISegmentedControl *_quitAppAfterSelector;
     UISegmentedControl *_metalFXSelector;
-    UISegmentedControl *_metalFXScaleSelector;
     UILabel *_versionLabel;
     NSArray<UIView *> *_settingsRows;
     BOOL _settingsReady;
@@ -612,25 +610,18 @@ BOOL isCustomResolution(CGSize res) {
         const char *uiTestMode = getenv("TWILIGHT_UITEST");
         BOOL allowMetalFXToggle = metalFXSupported || (uiTestMode != NULL && uiTestMode[0] != '\0');
         NSString *metalSubtitle = allowMetalFXToggle
-            ? @"Upscale to this screen. 50%, 67%, and 75% ask the host for that fraction of the screen. Resolution uses the resolution above."
+            ? @"Upscale the resolution above to this screen. Safe Area and Full already match it, so MetalFX stays idle."
             : @"Unavailable on this device.";
         _metalFXSelector = [self addYesNoControlTitled:@"MetalFX Upscaling" subtitle:metalSubtitle below:self.statsOverlaySelector];
         _metalFXSelector.accessibilityIdentifier = @"twilight.metalfx";
-        UIView *videoAnchor = _metalFXSelector;
         if (allowMetalFXToggle) {
             _metalFXSelector.selectedSegmentIndex = currentSettings.metalFXEnabled ? 1 : 0;
-            _metalFXScaleSelector = [self addChoiceControlTitled:@"MetalFX Scale"
-                                                         options:@[@"50%", @"67%", @"75%", @"Resolution"]
-                                                           below:_metalFXSelector];
-            _metalFXScaleSelector.accessibilityIdentifier = @"twilight.metalfx.scale";
-            _metalFXScaleSelector.selectedSegmentIndex = [MetalFXLayout choiceIndexForScalePercent:currentSettings.metalFXScale];
-            videoAnchor = _metalFXScaleSelector;
         }
         else {
             _metalFXSelector.enabled = NO;
             _metalFXSelector.selectedSegmentIndex = 0;
         }
-        _adaptiveBitrateSelector = [self addYesNoControlTitled:@"Adaptive Bitrate" below:videoAnchor];
+        _adaptiveBitrateSelector = [self addYesNoControlTitled:@"Adaptive Bitrate" below:_metalFXSelector];
         [_adaptiveBitrateSelector setSelectedSegmentIndex:currentSettings.enableAdaptiveBitrate ? 1 : 0];
 #if !TARGET_OS_TV
         _microphoneSelector = [self addYesNoControlTitled:@"Microphone Passthrough" below:_adaptiveBitrateSelector];
@@ -1066,7 +1057,8 @@ BOOL isCustomResolution(CGSize res) {
     BOOL enableMicrophone = [_microphoneSelector selectedSegmentIndex] == 1;
     BOOL quitAppAfter = [_quitAppAfterSelector selectedSegmentIndex] == 1;
     BOOL metalFXEnabled = _metalFXSelector != nil && _metalFXSelector.enabled && _metalFXSelector.selectedSegmentIndex == 1;
-    NSInteger metalFXScale = _metalFXScaleSelector != nil ? [MetalFXLayout scalePercentForChoiceIndex:_metalFXScaleSelector.selectedSegmentIndex] : 0;
+    // The old 50/67/75 scale is retired. Saving 0 clears a value left in the store.
+    NSInteger metalFXScale = 0;
     [dataMan saveSettingsWithBitrate:_bitrate
                            framerate:framerate
                               height:height

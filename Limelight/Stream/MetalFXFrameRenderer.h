@@ -16,8 +16,10 @@ NS_ASSUME_NONNULL_BEGIN
 + (BOOL)deviceSupportsSpatialScaler;
 + (NSString *)statsLine;
 + (void)publishOff;
++ (void)publishOffIfNotIdle;
 + (void)publishFallback;
 + (void)publishStarting;
++ (void)publishIdleStreamWidth:(NSInteger)width height:(NSInteger)height;
 + (void)publishActiveInput:(CGSize)input output:(CGSize)output;
 
 /// nil when the device, the shader, or an HDR target cannot be set up.

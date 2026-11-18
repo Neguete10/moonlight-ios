@@ -14,34 +14,31 @@ typedef NS_ENUM(NSInteger, MetalFXStatsMode) {
     MetalFXStatsModeStarting,
     MetalFXStatsModeActive,
     MetalFXStatsModeFallback,
+    MetalFXStatsModeIdle,
 };
 
 @interface MetalFXLayout : NSObject
 
-/// 50, 67, and 75 are fractions of the screen. Anything else means the
-/// resolution the user already picked.
-+ (NSInteger)normalizedScalePercent:(NSInteger)percent;
-+ (NSInteger)scalePercentForChoiceIndex:(NSInteger)index;
-+ (NSInteger)choiceIndexForScalePercent:(NSInteger)percent;
-
-/// Which picture the percent modes shrink. Safe Area uses the safe-area
-/// pixels, Full uses the full-bleed pixels, and a fixed resolution uses
-/// that resolution so the stream keeps its aspect.
+/// Safe Area matches the safe-area pixels, Full matches the full-bleed
+/// pixels, and any other resolution stays as chosen.
 + (CGSize)nativeBaseForChosenWidth:(NSInteger)chosenWidth
                             height:(NSInteger)chosenHeight
                         safePixels:(CGSize)safePixels
                         fullPixels:(CGSize)fullPixels
                      landscapeOnly:(BOOL)landscapeOnly;
 
-/// Size to request from the host. Percent modes shrink nativePixels
-/// (the safe-area size, the full-bleed size, or a fixed resolution).
-/// Disabled, or a percent of 0, keeps the chosen resolution.
-+ (CGSize)hostSizeForNativePixels:(CGSize)nativePixels
-                      chosenWidth:(NSInteger)chosenWidth
-                     chosenHeight:(NSInteger)chosenHeight
-                     scalePercent:(NSInteger)scalePercent
-                          enabled:(BOOL)enabled
-                    landscapeOnly:(BOOL)landscapeOnly;
+/// The host is asked for the resolution the user picked. MetalFX does not
+/// shrink it. Old saved 50/67/75 scale values are not applied.
++ (CGSize)hostSizeForChosenWidth:(NSInteger)chosenWidth
+                          height:(NSInteger)chosenHeight
+                   landscapeOnly:(BOOL)landscapeOnly;
+
+/// YES when aspect-fitting the stream into the screen produces a strictly
+/// larger picture. Safe Area and Full already match that picture.
++ (BOOL)shouldUpscaleStreamWidth:(NSInteger)width
+                          height:(NSInteger)height
+                    screenPixels:(CGSize)screenPixels
+                   landscapeOnly:(BOOL)landscapeOnly;
 
 /// The rect the Metal layer occupies. Same aspect-fit rect as the
 /// sample-buffer display layer.
@@ -70,6 +67,13 @@ typedef NS_ENUM(NSInteger, MetalFXStatsMode) {
 /// Same line with the stage that consumed the most of that time: queue, texture,
 /// yuv, scaler, drawable, gpu, or present.
 + (NSString *)statsLine:(NSString *)line appendingLatencyMs:(double)latencyMs stage:(nullable NSString *)stage;
+
+/// Adds " drop 12" for decoded frames that were replaced before they were shown.
+/// A negative count leaves the line unchanged.
++ (NSString *)statsLine:(NSString *)line
+     appendingLatencyMs:(double)latencyMs
+                  stage:(nullable NSString *)stage
+          droppedFrames:(NSInteger)droppedFrames;
 
 /// Name of the largest stage. Equal values keep the earlier name.
 + (NSString *)dominantStageNameForQueueMs:(double)queueMs

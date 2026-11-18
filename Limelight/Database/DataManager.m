@@ -151,7 +151,14 @@
     __block TemporarySettings *tempSettings;
     
     [_managedObjectContext performBlockAndWait:^{
-        tempSettings = [[TemporarySettings alloc] initFromSettings:[self retrieveSettings]];
+        Settings *stored = [self retrieveSettings];
+        // 50, 67, and 75 used to shrink the host resolution. The switch no longer
+        // does that, so a stored scale is cleared the next time settings load.
+        if (stored.metalFXScale != 0) {
+            stored.metalFXScale = 0;
+            [self saveData];
+        }
+        tempSettings = [[TemporarySettings alloc] initFromSettings:stored];
     }];
     
     return tempSettings;

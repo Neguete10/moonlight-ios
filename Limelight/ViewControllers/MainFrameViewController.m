@@ -711,37 +711,21 @@ static NSMutableSet* hostList;
     if (streamSettings.metalFXEnabled && [MetalFXFrameRenderer deviceSupportsSpatialScaler]) {
         UIWindow *window = self.view.window;
         CGRect interfaceBounds = window != nil ? window.bounds : UIScreen.mainScreen.bounds;
-        UIEdgeInsets safeInsets = window != nil ? window.safeAreaInsets : UIEdgeInsetsZero;
         CGFloat screenScale = window != nil ? window.screen.scale : UIScreen.mainScreen.scale;
         if (screenScale < 0.5) {
             screenScale = UIScreen.mainScreen.scale;
         }
-        CGSize safePixels = [StreamVideoLayout streamPixelsForSize:interfaceBounds.size
-                                                             insets:safeInsets
-                                                              scale:screenScale
-                                                      landscapeOnly:landscapeOnlyPhone
-                                                          fullBleed:NO];
-        CGSize fullPixels = [StreamVideoLayout streamPixelsForSize:interfaceBounds.size
-                                                             insets:safeInsets
-                                                              scale:screenScale
-                                                      landscapeOnly:landscapeOnlyPhone
-                                                          fullBleed:YES];
-        CGSize nativeBase = [MetalFXLayout nativeBaseForChosenWidth:_streamConfig.width
-                                                              height:_streamConfig.height
-                                                          safePixels:safePixels
-                                                          fullPixels:fullPixels
-                                                       landscapeOnly:landscapeOnlyPhone];
-        CGSize hostSize = [MetalFXLayout hostSizeForNativePixels:nativeBase
-                                                     chosenWidth:_streamConfig.width
-                                                    chosenHeight:_streamConfig.height
-                                                    scalePercent:streamSettings.metalFXScale
-                                                         enabled:YES
-                                                   landscapeOnly:landscapeOnlyPhone];
-        if (hostSize.width >= 2 && hostSize.height >= 2) {
-            _streamConfig.width = (int)hostSize.width;
-            _streamConfig.height = (int)hostSize.height;
+        CGSize screenPixels = CGSizeMake(interfaceBounds.size.width * screenScale, interfaceBounds.size.height * screenScale);
+        if ([MetalFXLayout shouldUpscaleStreamWidth:_streamConfig.width
+                                              height:_streamConfig.height
+                                        screenPixels:screenPixels
+                                       landscapeOnly:landscapeOnlyPhone]) {
             _streamConfig.enableMetalFX = YES;
-            Log(LOG_I, @"MetalFX host picture %dx%d (scale %ld)", _streamConfig.width, _streamConfig.height, (long)streamSettings.metalFXScale);
+            Log(LOG_I, @"MetalFX upscaling %dx%d", _streamConfig.width, _streamConfig.height);
+        }
+        else {
+            [MetalFXFrameRenderer publishIdleStreamWidth:_streamConfig.width height:_streamConfig.height];
+            Log(LOG_I, @"MetalFX idle at %dx%d", _streamConfig.width, _streamConfig.height);
         }
     }
     
@@ -2127,22 +2111,8 @@ static NSMutableSet* hostList;
                                                               scale:screenScale
                                                       landscapeOnly:landscapeOnly
                                                           fullBleed:NO];
-        TemporarySettings *settings = [[[DataManager alloc] init] getSettings];
-        CGSize fullPixels = [StreamVideoLayout streamPixelsForSize:interfaceBounds.size
-                                                             insets:safeInsets
-                                                              scale:screenScale
-                                                      landscapeOnly:landscapeOnly
-                                                          fullBleed:YES];
-        CGSize base = [MetalFXLayout nativeBaseForChosenWidth:(NSInteger)llround(safePixels.width)
-                                                        height:(NSInteger)llround(safePixels.height)
-                                                    safePixels:safePixels
-                                                    fullPixels:fullPixels
-                                                 landscapeOnly:landscapeOnly];
-        CGSize host = [MetalFXLayout hostSizeForNativePixels:base
-                                                 chosenWidth:(NSInteger)llround(safePixels.width)
-                                                chosenHeight:(NSInteger)llround(safePixels.height)
-                                                scalePercent:settings.metalFXScale
-                                                     enabled:settings.metalFXEnabled
+        CGSize host = [MetalFXLayout hostSizeForChosenWidth:(NSInteger)llround(safePixels.width)
+                                                      height:(NSInteger)llround(safePixels.height)
                                                landscapeOnly:landscapeOnly];
         config.width = (int)MAX(2, host.width);
         config.height = (int)MAX(2, host.height);

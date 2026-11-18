@@ -8,62 +8,6 @@
 
 @implementation MetalFXLayout
 
-+ (NSInteger)normalizedScalePercent:(NSInteger)percent {
-    if (percent == 50 || percent == 67 || percent == 75) {
-        return percent;
-    }
-    return 0;
-}
-
-+ (NSInteger)scalePercentForChoiceIndex:(NSInteger)index {
-    switch (index) {
-        case 0:
-            return 50;
-        case 1:
-            return 67;
-        case 2:
-            return 75;
-        default:
-            return 0;
-    }
-}
-
-+ (NSInteger)choiceIndexForScalePercent:(NSInteger)percent {
-    switch ([self normalizedScalePercent:percent]) {
-        case 50:
-            return 0;
-        case 67:
-            return 1;
-        case 75:
-            return 2;
-        default:
-            return 3;
-    }
-}
-
-+ (NSInteger)evenDown:(NSInteger)value {
-    if (value < 2) {
-        return 2;
-    }
-    value &= ~1;
-    return value < 2 ? 2 : value;
-}
-
-+ (NSInteger)scaledEven:(NSInteger)value percent:(NSInteger)percent {
-    NSInteger scaled = value;
-    if (percent == 50) {
-        scaled = value / 2;
-    }
-    else if (percent == 67) {
-        // Two thirds. The settings label says 67%.
-        scaled = (value * 2) / 3;
-    }
-    else if (percent == 75) {
-        scaled = (value * 3) / 4;
-    }
-    return [self evenDown:scaled];
-}
-
 + (BOOL)size:(CGSize)size matches:(CGSize)other {
     return fabs(size.width - other.width) <= 2.0 && fabs(size.height - other.height) <= 2.0;
 }
@@ -91,35 +35,25 @@
     return chosen;
 }
 
-+ (CGSize)hostSizeForNativePixels:(CGSize)nativePixels
-                      chosenWidth:(NSInteger)chosenWidth
-                     chosenHeight:(NSInteger)chosenHeight
-                     scalePercent:(NSInteger)scalePercent
-                          enabled:(BOOL)enabled
-                    landscapeOnly:(BOOL)landscapeOnly {
-    CGSize chosen = [StreamVideoLayout streamSizeForWidth:chosenWidth
-                                                    height:chosenHeight
-                                             landscapeOnly:landscapeOnly];
-    NSInteger percent = [self normalizedScalePercent:scalePercent];
-    if (!enabled || percent == 0) {
-        return chosen;
++ (CGSize)hostSizeForChosenWidth:(NSInteger)chosenWidth
+                          height:(NSInteger)chosenHeight
+                   landscapeOnly:(BOOL)landscapeOnly {
+    return [StreamVideoLayout streamSizeForWidth:chosenWidth
+                                          height:chosenHeight
+                                   landscapeOnly:landscapeOnly];
+}
+
++ (BOOL)shouldUpscaleStreamWidth:(NSInteger)width
+                          height:(NSInteger)height
+                    screenPixels:(CGSize)screenPixels
+                   landscapeOnly:(BOOL)landscapeOnly {
+    CGSize stream = [self hostSizeForChosenWidth:width height:height landscapeOnly:landscapeOnly];
+    CGSize screen = [StreamVideoLayout interfaceSizeForSize:screenPixels landscapeOnly:landscapeOnly];
+    if (stream.width < 2.0 || stream.height < 2.0 || screen.width < 2.0 || screen.height < 2.0) {
+        return NO;
     }
-    CGSize native = [StreamVideoLayout interfaceSizeForSize:nativePixels landscapeOnly:landscapeOnly];
-    if (native.width < 2.0 || native.height < 2.0) {
-        return chosen;
-    }
-    NSInteger nativeW = [self evenDown:(NSInteger)floor(native.width)];
-    NSInteger nativeH = [self evenDown:(NSInteger)floor(native.height)];
-    NSInteger width = [self scaledEven:nativeW percent:percent];
-    NSInteger height = [self scaledEven:nativeH percent:percent];
-    // The upscaler needs the host picture to be smaller than the screen.
-    if (width >= nativeW && nativeW > 2) {
-        width = [self evenDown:nativeW - 2];
-    }
-    if (height >= nativeH && nativeH > 2) {
-        height = [self evenDown:nativeH - 2];
-    }
-    return CGSizeMake(width, height);
+    CGRect output = [self outputRectForDrawablePixels:screen streamAspectRatio:stream.width / stream.height];
+    return [self canUpscaleInput:stream toOutput:output.size];
 }
 
 + (CGRect)layerRectForBounds:(CGRect)bounds streamAspectRatio:(CGFloat)aspectRatio {
@@ -195,6 +129,12 @@
             return @"MetalFX starting";
         case MetalFXStatsModeFallback:
             return @"MetalFX fallback";
+        case MetalFXStatsModeIdle:
+            if (input.width >= 2.0 && input.height >= 2.0) {
+                return [NSString stringWithFormat:@"MetalFX idle %dx%d",
+                        (int)llround(input.width), (int)llround(input.height)];
+            }
+            return @"MetalFX idle";
         case MetalFXStatsModeOff:
         default:
             return @"MetalFX off";
@@ -206,13 +146,23 @@
 }
 
 + (NSString *)statsLine:(NSString *)line appendingLatencyMs:(double)latencyMs stage:(NSString *)stage {
+    return [self statsLine:line appendingLatencyMs:latencyMs stage:stage droppedFrames:-1];
+}
+
++ (NSString *)statsLine:(NSString *)line
+     appendingLatencyMs:(double)latencyMs
+                  stage:(NSString *)stage
+          droppedFrames:(NSInteger)droppedFrames {
     if (line.length == 0 || latencyMs < 0) {
         return line ?: @"";
     }
-    if (stage.length == 0) {
-        return [NSString stringWithFormat:@"%@ +%.1f ms", line, latencyMs];
+    NSString *timed = stage.length == 0
+        ? [NSString stringWithFormat:@"%@ +%.1f ms", line, latencyMs]
+        : [NSString stringWithFormat:@"%@ +%.1f ms %@", line, latencyMs, stage];
+    if (droppedFrames < 0) {
+        return timed;
     }
-    return [NSString stringWithFormat:@"%@ +%.1f ms %@", line, latencyMs, stage];
+    return [NSString stringWithFormat:@"%@ drop %ld", timed, (long)droppedFrames];
 }
 
 + (NSString *)dominantStageNameForQueueMs:(double)queueMs

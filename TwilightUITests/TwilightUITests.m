@@ -325,8 +325,6 @@
     [self launchMode:@"metalfx"];
     [self scrollSettingsUntilHittable:@"twilight.metalfx.1"];
     [self tapIdentifier:@"twilight.metalfx.1"];
-    [self scrollSettingsUntilHittable:@"twilight.metalfx.scale.0"];
-    [self tapIdentifier:@"twilight.metalfx.scale.0"];
     XCUIElement *done = self.app.navigationBars[@"Settings"].buttons[@"Done"];
     if (!done.exists) {
         done = self.app.buttons[@"Done"];

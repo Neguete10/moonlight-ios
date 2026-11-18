@@ -143,6 +143,7 @@ typedef struct {
 @property (nonatomic, assign) int inH;
 @property (nonatomic, assign) int outW;
 @property (nonatomic, assign) int outH;
+@property (nonatomic, assign) uint64_t serial;
 @end
 
 @implementation MetalFXTiming
@@ -183,6 +184,7 @@ static NSString *MetalFXCommandStatusName(MTLCommandBufferStatus status) {
     CAMetalLayer *_layer;
     id<MTLDevice> _device;
     id<MTLCommandQueue> _queue;
+    id<MTLCommandQueue> _presentQueue;
     id<MTLRenderPipelineState> _yuvPipeline;
     id<MTLRenderPipelineState> _blitPipeline;
     CVMetalTextureCacheRef _textureCache;
@@ -205,6 +207,12 @@ static NSString *MetalFXCommandStatusName(MTLCommandBufferStatus status) {
     NSLock *_pendingLock;
     CVPixelBufferRef _pendingBuffer;
     CFTimeInterval _pendingDecodedAt;
+    uint64_t _pendingSerial;
+    uint64_t _latestSerial;
+    BOOL _gpuBusy;
+    uint64_t _gpuSerial;
+    uint64_t _droppedFrames;
+    NSUInteger _droppedPublished;
     BOOL _renderQueued;
     MetalFXFrameSchedule *_schedule;
     double _emaTotal;
@@ -255,6 +263,19 @@ static NSString *gStatsLine;
 
 + (void)publishOff {
     [self publishStatsLine:[MetalFXLayout statsLineForMode:MetalFXStatsModeOff input:CGSizeZero output:CGSizeZero]];
+}
+
++ (void)publishOffIfNotIdle {
+    if ([[self statsLine] hasPrefix:@"MetalFX idle"]) {
+        return;
+    }
+    [self publishOff];
+}
+
++ (void)publishIdleStreamWidth:(NSInteger)width height:(NSInteger)height {
+    [self publishStatsLine:[MetalFXLayout statsLineForMode:MetalFXStatsModeIdle
+                                                     input:CGSizeMake(width, height)
+                                                    output:CGSizeZero]];
 }
 
 + (void)publishFallback {
@@ -344,7 +365,8 @@ static NSString *gStatsLine;
         _colorFormat = MTLPixelFormatBGRA8Unorm;
     }
     _queue = [_device newCommandQueue];
-    if (_queue == nil) {
+    _presentQueue = [_device newCommandQueue];
+    if (_queue == nil || _presentQueue == nil) {
         Log(LOG_W, @"MetalFX: command queue was not created");
         return NO;
     }
@@ -679,7 +701,8 @@ static NSString *gStatsLine;
                                                             gpuMs:_emaGpu
                                                          presentMs:_emaPresent];
     int tenths = (int)llround(_emaTotal * 10.0);
-    if (tenths == _latencyPublishedTenths && [stage isEqualToString:_latencyPublishedStage]) {
+    NSInteger droppedNow = (NSInteger)__atomic_load_n(&_droppedFrames, __ATOMIC_RELAXED);
+    if (tenths == _latencyPublishedTenths && [stage isEqualToString:_latencyPublishedStage] && (NSUInteger)droppedNow == _droppedPublished) {
         return;
     }
     _latencyPublishedTenths = tenths;
@@ -696,35 +719,66 @@ static NSString *gStatsLine;
     NSString *base = [MetalFXLayout statsLineForMode:MetalFXStatsModeActive
                                                input:CGSizeMake(_publishedW, _publishedH)
                                               output:CGSizeMake(_publishedOutW, _publishedOutH)];
-    NSString *line = [MetalFXLayout statsLine:base appendingLatencyMs:_emaTotal stage:stage];
+    NSInteger dropped = (NSInteger)__atomic_load_n(&_droppedFrames, __ATOMIC_RELAXED);
+    NSString *line = [MetalFXLayout statsLine:base appendingLatencyMs:_emaTotal stage:stage droppedFrames:dropped];
+    _droppedPublished = (NSUInteger)dropped;
     [MetalFXFrameRenderer publishStatsLine:line];
     Log(LOG_I, @"%@ (queue %.1f texture %.1f yuv %.1f scaler %.1f drawable %.1f gpu %.1f present %.1f)",
         line, _emaQueue, _emaTexture, _emaYuv, _emaScaler, _emaDrawable, _emaGpu, _emaPresent);
+}
+
+- (void)noteDroppedFrame {
+    __atomic_fetch_add(&_droppedFrames, 1, __ATOMIC_RELAXED);
+}
+
+- (void)discardReadyFramesOlderThan:(uint64_t)serial {
+    for (int i = 0; i < 2; i++) {
+        MetalFXSlot *slot = _slots[i];
+        if (slot == nil || !slot.ready || slot.presenting || slot.timing == nil) {
+            continue;
+        }
+        if (slot.timing.serial < serial) {
+            [self noteDroppedFrame];
+            [self finishSlot:slot];
+        }
+    }
 }
 
 - (void)drainPendingFrames {
     if (_invalid || _tornDown) {
         return;
     }
-    [self presentReadySlot];
+    uint64_t pendingSerial = 0;
+    [_pendingLock lock];
+    BOOL hasPending = _pendingBuffer != NULL;
+    pendingSerial = _pendingSerial;
+    [_pendingLock unlock];
+    if (hasPending) {
+        [self discardReadyFramesOlderThan:pendingSerial];
+    }
     [self startGpuForPendingFrame];
+    [self presentLatestReadyFrame];
 }
 
 - (BOOL)renderPixelBuffer:(CVPixelBufferRef)pixelBuffer {
     if (_invalid || _tornDown || _layer == nil || pixelBuffer == NULL || _renderQueue == nil) {
         return YES;
     }
-    // Timestamp at the decode callback. +X ms runs from here until the drawable is on screen.
+    // The decode callback only retains the newest buffer and returns.
+    // It does not encode, take a drawable, or wait for the GPU.
     CFTimeInterval decodedAt = CACurrentMediaTime();
     CVPixelBufferRetain(pixelBuffer);
     [_pendingLock lock];
     CVPixelBufferRef dropped = _pendingBuffer;
+    _latestSerial += 1;
     _pendingBuffer = pixelBuffer;
     _pendingDecodedAt = decodedAt;
+    _pendingSerial = _latestSerial;
     BOOL kick = !_renderQueued;
     _renderQueued = YES;
     [_pendingLock unlock];
     if (dropped != NULL) {
+        [self noteDroppedFrame];
         CVPixelBufferRelease(dropped);
     }
     if (kick) {
@@ -735,8 +789,45 @@ static NSString *gStatsLine;
     return YES;
 }
 
+- (void)presentLatestReadyFrame {
+    if (_invalid || _gpuBusy || _schedule.presentInFlight) {
+        return;
+    }
+    uint64_t pendingSerial = 0;
+    [_pendingLock lock];
+    BOOL hasPending = _pendingBuffer != NULL;
+    pendingSerial = _pendingSerial;
+    [_pendingLock unlock];
+    MetalFXSlot *newest = nil;
+    for (int i = 0; i < 2; i++) {
+        MetalFXSlot *slot = _slots[i];
+        if (slot == nil || !slot.ready || slot.presenting || slot.timing == nil) {
+            continue;
+        }
+        if (hasPending && slot.timing.serial < pendingSerial) {
+            [self noteDroppedFrame];
+            [self finishSlot:slot];
+            continue;
+        }
+        if (newest == nil || slot.timing.serial > newest.timing.serial) {
+            if (newest != nil) {
+                [self noteDroppedFrame];
+                [self finishSlot:newest];
+            }
+            newest = slot;
+        }
+        else {
+            [self noteDroppedFrame];
+            [self finishSlot:slot];
+        }
+    }
+    if (newest != nil) {
+        [self presentSlot:newest];
+    }
+}
+
 - (void)startGpuForPendingFrame {
-    if (_invalid || _tornDown) {
+    if (_invalid || _tornDown || _gpuBusy) {
         return;
     }
     [_pendingLock lock];
@@ -752,12 +843,13 @@ static NSString *gStatsLine;
     }
     MetalFXSlot *slot = [self claimFreeSlot];
     if (slot == nil) {
-        // Both private targets are still in use. Keep the newest pixel buffer.
+        // One texture is on the display and the other is the newest GPU result.
         return;
     }
     [_pendingLock lock];
     CVPixelBufferRef buffer = _pendingBuffer;
     CFTimeInterval decodedAt = _pendingDecodedAt;
+    uint64_t serial = _pendingSerial;
     _pendingBuffer = NULL;
     if (buffer == NULL) {
         _renderQueued = NO;
@@ -766,9 +858,12 @@ static NSString *gStatsLine;
         return;
     }
     [_pendingLock unlock];
-    BOOL submitted = [self encodeGpuBuffer:buffer slot:slot decodedAt:decodedAt];
+    _gpuBusy = YES;
+    _gpuSerial = serial;
+    BOOL submitted = [self encodeGpuBuffer:buffer slot:slot decodedAt:decodedAt serial:serial];
     CVPixelBufferRelease(buffer);
     if (!submitted) {
+        _gpuBusy = NO;
         [self finishSlot:slot];
     }
     [_pendingLock lock];
@@ -779,34 +874,6 @@ static NSString *gStatsLine;
     [_pendingLock unlock];
     if (more) {
         [self startGpuForPendingFrame];
-    }
-}
-
-- (void)presentReadySlot {
-    if (_invalid || _schedule.presentInFlight) {
-        return;
-    }
-    MetalFXSlot *newest = nil;
-    for (int i = 0; i < 2; i++) {
-        MetalFXSlot *slot = _slots[i];
-        if (slot == nil || !slot.ready || slot.presenting) {
-            continue;
-        }
-        if (slot.timing == nil) {
-            [self finishSlot:slot];
-            continue;
-        }
-        if (newest != nil && newest.timing.decodedAt > slot.timing.decodedAt) {
-            [self finishSlot:slot];
-            continue;
-        }
-        if (newest != nil) {
-            [self finishSlot:newest];
-        }
-        newest = slot;
-    }
-    if (newest != nil) {
-        [self presentSlot:newest];
     }
 }
 
@@ -854,7 +921,7 @@ static NSString *gStatsLine;
                                floor((drawable.texture.height - slot.outH) / 2.0),
                                slot.outW,
                                slot.outH);
-    id<MTLCommandBuffer> presentBuffer = [_queue commandBuffer];
+    id<MTLCommandBuffer> presentBuffer = [_presentQueue commandBuffer];
     if (presentBuffer == nil) {
         [_schedule endPresent];
         [self failWithReason:@"present command buffer was not created"];
@@ -919,7 +986,7 @@ static NSString *gStatsLine;
     [self announceFirstFrame];
 }
 
-- (BOOL)encodeGpuBuffer:(CVPixelBufferRef)pixelBuffer slot:(MetalFXSlot *)slot decodedAt:(CFTimeInterval)decodedAt {
+- (BOOL)encodeGpuBuffer:(CVPixelBufferRef)pixelBuffer slot:(MetalFXSlot *)slot decodedAt:(CFTimeInterval)decodedAt serial:(uint64_t)serial {
     CFTimeInterval started = CACurrentMediaTime();
     OSType format = CVPixelBufferGetPixelFormatType(pixelBuffer);
     BOOL tenBit = format == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange || format == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange;
@@ -983,6 +1050,7 @@ static NSString *gStatsLine;
     timing.inH = (int)height;
     timing.outW = (int)llround(output.size.width);
     timing.outH = (int)llround(output.size.height);
+    timing.serial = serial;
     slot.timing = timing;
 
     CFTimeInterval textureStart = CACurrentMediaTime();
@@ -1074,15 +1142,23 @@ static NSString *gStatsLine;
         (void)held;
         dispatch_async(self->_renderQueue, ^{
             [self noteCommandBuffer:buffer label:@"gpu"];
-            if (self->_invalid || finished.discard) {
+            self->_gpuBusy = NO;
+            uint64_t newest = 0;
+            [self->_pendingLock lock];
+            BOOL newerWaiting = self->_pendingBuffer != NULL && self->_pendingSerial > gpuTiming.serial;
+            newest = self->_pendingSerial;
+            [self->_pendingLock unlock];
+            if (self->_invalid || finished.discard || newerWaiting) {
+                if (newerWaiting) {
+                    [self noteDroppedFrame];
+                }
+                (void)newest;
                 [self finishSlot:finished];
                 [self drainPendingFrames];
                 return;
             }
-            if (finished.presenting) {
-                return;
-            }
             finished.ready = YES;
+            finished.busy = YES;
             if (finished.timing != nil) {
                 finished.timing.readyAt = CACurrentMediaTime();
             }
@@ -1091,9 +1167,6 @@ static NSString *gStatsLine;
     }];
     [commandBuffer commit];
     _skippedForLayout = 0;
-    if (!_schedule.presentInFlight) {
-        [self presentSlot:slot];
-    }
     return YES;
 #endif
 }

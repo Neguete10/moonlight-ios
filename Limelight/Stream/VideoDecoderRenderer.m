@@ -138,7 +138,7 @@ static void MetalFXDecompressionCallback(void *decompressionOutputRefCon,
     parameterSetBuffers = [[NSMutableArray alloc] init];
 
     if (!enableMetalFX) {
-        [MetalFXFrameRenderer publishOff];
+        [MetalFXFrameRenderer publishOffIfNotIdle];
         [self reinitializeDisplayLayer];
         return self;
     }
@@ -236,18 +236,11 @@ static void MetalFXDecompressionCallback(void *decompressionOutputRefCon,
             usleep(200);
             continue;
         }
-        // Keep the newest frame only. Older ones would become display lag.
-        while (!_metalPumpStop && LiGetPendingVideoFrames() > 0) {
+        // Every compressed frame has to be decoded. Skipping one breaks
+        // prediction and the picture turns into macroblocks. Stale output
+        // is dropped after decode, in the renderer.
+        if (_metalPumpStop) {
             LiCompleteVideoFrame(handle, DR_OK);
-            if (!LiPollNextVideoFrame(&handle, &du)) {
-                du = NULL;
-                break;
-            }
-        }
-        if (du == NULL || _metalPumpStop) {
-            if (du != NULL) {
-                LiCompleteVideoFrame(handle, DR_OK);
-            }
             continue;
         }
         int status = DrSubmitDecodeUnit(du);
