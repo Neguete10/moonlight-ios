@@ -231,9 +231,11 @@ static NSString *gStatsLine;
         if (device == nil || ![MTLFXSpatialScalerDescriptor supportsDevice:device]) {
             return NO;
         }
+#if !TARGET_OS_TV
         if (UIScreen.mainScreen.potentialEDRHeadroom <= 1.0) {
             return NO;
         }
+#endif
         return YES;
     }
 #else
@@ -320,7 +322,10 @@ static NSString *gStatsLine;
     _layer.hidden = YES;
     if (_hdr) {
         if (@available(iOS 16.0, tvOS 16.0, *)) {
+#if !TARGET_OS_TV
+            // Marked unavailable on tvOS. The colorspace below still requests an extended range.
             _layer.wantsExtendedDynamicRangeContent = YES;
+#endif
             CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearITUR_2020);
             if (space == NULL) {
                 space = CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearSRGB);
