@@ -37,6 +37,8 @@
 @property (nonatomic) BOOL enableAdaptiveBitrate;
 @property (nonatomic) BOOL enableMicrophone;
 @property (nonatomic) BOOL quitAppAfter;
+@property (nonatomic) BOOL metalFXEnabled;
+@property (nonatomic) NSInteger metalFXScale;
 
 - (id) initFromSettings:(Settings*)settings;
 

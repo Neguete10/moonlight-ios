@@ -70,7 +70,9 @@
                     statsOverlay:(BOOL)statsOverlay
            enableAdaptiveBitrate:(BOOL)enableAdaptiveBitrate
                enableMicrophone:(BOOL)enableMicrophone
-                      quitAppAfter:(BOOL)quitAppAfter {
+                      quitAppAfter:(BOOL)quitAppAfter
+                    metalFXEnabled:(BOOL)metalFXEnabled
+                      metalFXScale:(NSInteger)metalFXScale {
     
     [_managedObjectContext performBlockAndWait:^{
         Settings* settingsToSave = [self retrieveSettings];
@@ -93,6 +95,8 @@
         settingsToSave.enableAdaptiveBitrate = enableAdaptiveBitrate;
         settingsToSave.enableMicrophone = enableMicrophone;
         settingsToSave.quitAppAfter = quitAppAfter;
+        settingsToSave.metalFXEnabled = metalFXEnabled;
+        settingsToSave.metalFXScale = (int32_t)metalFXScale;
         
         [self saveData];
     }];
@@ -147,7 +151,14 @@
     __block TemporarySettings *tempSettings;
     
     [_managedObjectContext performBlockAndWait:^{
-        tempSettings = [[TemporarySettings alloc] initFromSettings:[self retrieveSettings]];
+        Settings *stored = [self retrieveSettings];
+        // 50, 67, and 75 used to shrink the host resolution. The switch no longer
+        // does that, so a stored scale is cleared the next time settings load.
+        if (stored.metalFXScale != 0) {
+            stored.metalFXScale = 0;
+            [self saveData];
+        }
+        tempSettings = [[TemporarySettings alloc] initFromSettings:stored];
     }];
     
     return tempSettings;

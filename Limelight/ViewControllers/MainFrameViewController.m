@@ -29,7 +29,10 @@
 
 #import "TwilightTheme.h"
 #import "StreamVideoLayout.h"
+#import "MetalFXLayout.h"
+#import "MetalFXFrameRenderer.h"
 
+#include <math.h>
 #include <stdlib.h>
 
 #if !TARGET_OS_TV
@@ -71,6 +74,7 @@
     BOOL _layingOutChrome;
     BOOL _didPinLibrary;
     BOOL _userScrolledLibrary;
+    BOOL _uiTestStreamStarted;
     CGFloat _laidOutTileWidth;
 #if TARGET_OS_TV
     UITapGestureRecognizer* _menuRecognizer;
@@ -701,6 +705,29 @@ static NSMutableSet* hostList;
         _streamConfig.height = 1080;
     }
 #endif
+
+    _streamConfig.enableHdr = streamSettings.enableHdr;
+    _streamConfig.enableMetalFX = NO;
+    if (streamSettings.metalFXEnabled && [MetalFXFrameRenderer deviceSupportsSpatialScaler]) {
+        UIWindow *window = self.view.window;
+        CGRect interfaceBounds = window != nil ? window.bounds : UIScreen.mainScreen.bounds;
+        CGFloat screenScale = window != nil ? window.screen.scale : UIScreen.mainScreen.scale;
+        if (screenScale < 0.5) {
+            screenScale = UIScreen.mainScreen.scale;
+        }
+        CGSize screenPixels = CGSizeMake(interfaceBounds.size.width * screenScale, interfaceBounds.size.height * screenScale);
+        if ([MetalFXLayout shouldUpscaleStreamWidth:_streamConfig.width
+                                              height:_streamConfig.height
+                                        screenPixels:screenPixels
+                                       landscapeOnly:landscapeOnlyPhone]) {
+            _streamConfig.enableMetalFX = YES;
+            Log(LOG_I, @"MetalFX upscaling %dx%d", _streamConfig.width, _streamConfig.height);
+        }
+        else {
+            [MetalFXFrameRenderer publishIdleStreamWidth:_streamConfig.width height:_streamConfig.height];
+            Log(LOG_I, @"MetalFX idle at %dx%d", _streamConfig.width, _streamConfig.height);
+        }
+    }
     
     // Settings can store a value above 1 Gbps until the user changes it.
     // The stream itself never asks for more than the send cap.
@@ -2051,9 +2078,51 @@ static NSMutableSet* hostList;
             [(SettingsViewController *)root saveSettings];
         }
     }
+    BOOL metalFXTest = NO;
+#if DEBUG && !TARGET_OS_TV
+    const char *uiTestMode = getenv("TWILIGHT_UITEST");
+    metalFXTest = uiTestMode != NULL && (strcmp(uiTestMode, "metalfx") == 0 || strcmp(uiTestMode, "metalfx-safe") == 0);
+#endif
     [self dismissViewControllerAnimated:YES completion:^{
         [self restoreShellBar];
+        if (metalFXTest && !self->_uiTestStreamStarted) {
+            self->_uiTestStreamStarted = YES;
+            [self startUITestStream];
+        }
     }];
+}
+
+- (void)startUITestStream {
+    StreamConfiguration *config = [[StreamConfiguration alloc] init];
+    config.appName = @"Desktop";
+    config.host = @"192.0.2.10";
+    config.frameRate = 60;
+    config.bitRate = 20000;
+    const char *uiTestMode = getenv("TWILIGHT_UITEST");
+    BOOL safeArea = uiTestMode != NULL && strcmp(uiTestMode, "metalfx-safe") == 0;
+    if (safeArea) {
+        UIWindow *window = self.view.window;
+        CGRect interfaceBounds = window != nil ? window.bounds : UIScreen.mainScreen.bounds;
+        UIEdgeInsets safeInsets = window != nil ? window.safeAreaInsets : UIEdgeInsetsZero;
+        CGFloat screenScale = window != nil ? window.screen.scale : UIScreen.mainScreen.scale;
+        BOOL landscapeOnly = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone;
+        CGSize safePixels = [StreamVideoLayout streamPixelsForSize:interfaceBounds.size
+                                                             insets:safeInsets
+                                                              scale:screenScale
+                                                      landscapeOnly:landscapeOnly
+                                                          fullBleed:NO];
+        CGSize host = [MetalFXLayout hostSizeForChosenWidth:(NSInteger)llround(safePixels.width)
+                                                      height:(NSInteger)llround(safePixels.height)
+                                               landscapeOnly:landscapeOnly];
+        config.width = (int)MAX(2, host.width);
+        config.height = (int)MAX(2, host.height);
+    }
+    else {
+        config.width = 1920;
+        config.height = 1080;
+    }
+    _streamConfig = config;
+    [self performSegueWithIdentifier:@"createStreamFrame" sender:nil];
 }
 
 - (void)dismissOverlay {
@@ -2580,6 +2649,12 @@ static NSMutableSet* hostList;
                 [self presentHostSwitcher];
             });
         }
+    }
+    else if ([which isEqualToString:@"metalfx"] || [which isEqualToString:@"metalfx-safe"]) {
+        [self installScreenshotLibrary];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self showSettingsSheet];
+        });
     }
     else if ([which isEqualToString:@"stream"] || [which isEqualToString:@"keyboard"]) {
         StreamConfiguration *config = [[StreamConfiguration alloc] init];

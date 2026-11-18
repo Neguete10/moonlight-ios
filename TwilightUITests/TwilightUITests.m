@@ -282,10 +282,23 @@
         letter = app.keys[@"Q"];
     }
     XCTAssertTrue(letter.exists, @"System keyboard is missing the Q key");
-    // Type into the focused stream field. The one-point field is not a
-    // hittable target, and a later Win/Alt hold would change the character.
-    [app typeText:@"q"];
-    XCTAssertTrue([self logContains:@"down 81" within:8], @"key log missing \"down 81\": %@", [self keyLog].label);
+    // The simulator's hardware keyboard is disabled, so typeText never reaches
+    // the stream field. Press the on-screen Q key before any modifier is held.
+    if (letter.isHittable) {
+        [letter tap];
+    }
+    else {
+        [[letter coordinateWithNormalizedOffset:CGVectorMake(0.5, 0.5)] tap];
+    }
+    if (![self logContains:@"down 81" within:4]) {
+        if (letter.isHittable) {
+            [letter tap];
+        }
+        else {
+            [[letter coordinateWithNormalizedOffset:CGVectorMake(0.5, 0.5)] tap];
+        }
+    }
+    XCTAssertTrue([self logContains:@"down 81" within:4], @"key log missing \"down 81\": %@", [self keyLog].label);
 
     [self tapIdentifier:@"twilight.key.esc" expecting:@"down 27"];
     [self waitForLogContaining:@"up 27"];
@@ -307,6 +320,89 @@
     XCTNSPredicateExpectation *dismissed = [[XCTNSPredicateExpectation alloc] initWithPredicate:gone object:keyboard];
     XCTAssertEqual([XCTWaiter waitForExpectations:@[dismissed] timeout:8], XCTWaiterResultCompleted, @"Done did not resign first responder");
     [self saveShot:@"keyboard-dismissed"];
+}
+
+- (void)scrollSettingsUntilHittable:(NSString *)identifier {
+    XCUIElement *settings = [self waitForIdentifier:@"twilight.settings" timeout:4];
+    XCUIElement *button = self.app.buttons[identifier];
+    for (NSInteger i = 0; i < 8; i++) {
+        if (button.exists && button.isHittable) {
+            return;
+        }
+        [settings swipeUp];
+        [self spinFor:0.3];
+    }
+}
+
+- (void)testMetalFXToggleStartsStreamAndFallsBack {
+    [self launchMode:@"metalfx"];
+    [self scrollSettingsUntilHittable:@"twilight.metalfx.1"];
+    [self tapIdentifier:@"twilight.metalfx.1"];
+    XCUIElement *done = self.app.navigationBars[@"Settings"].buttons[@"Done"];
+    if (!done.exists) {
+        done = self.app.buttons[@"Done"];
+    }
+    XCTAssertTrue([done waitForExistenceWithTimeout:2], @"Settings Done button is missing");
+    [done tap];
+
+    [[XCUIDevice sharedDevice] setOrientation:UIDeviceOrientationLandscapeLeft];
+    [self assertVideoSettled];
+    XCUIElement *status = [self waitForIdentifier:@"twilight.metalfx.status" timeout:4];
+    NSString *line = status.label.length > 0 ? status.label : [status.value description];
+    // The simulator does not advertise MTLFXSpatialScaler. The stream stays
+    // on the display layer, which is the fallback the setting promises.
+    XCTAssertTrue([line containsString:@"fallback"], @"MetalFX status: %@", line);
+    [self saveShot:@"metalfx-fallback"];
+}
+
+- (void)assertElement:(XCUIElement *)element matches:(XCUIElement *)other named:(NSString *)name {
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:4];
+    CGRect elementFrame = CGRectZero;
+    CGRect otherFrame = CGRectZero;
+    BOOL matched = NO;
+    while ([deadline timeIntervalSinceNow] > 0) {
+        elementFrame = element.frame;
+        otherFrame = other.frame;
+        BOOL sized = elementFrame.size.width > 20 && elementFrame.size.height > 20;
+        BOOL equal = fabs(elementFrame.origin.x - otherFrame.origin.x) < 2
+            && fabs(elementFrame.origin.y - otherFrame.origin.y) < 2
+            && fabs(elementFrame.size.width - otherFrame.size.width) < 2
+            && fabs(elementFrame.size.height - otherFrame.size.height) < 2;
+        if (sized && equal) {
+            matched = YES;
+            break;
+        }
+        [self spinFor:0.2];
+    }
+    XCTAssertTrue(matched, @"%@ frame %@ != %@", name, NSStringFromCGRect(elementFrame), NSStringFromCGRect(otherFrame));
+    CGRect window = [self windowFrame];
+    if (otherFrame.size.width < window.size.width - 8) {
+        XCTAssertLessThan(elementFrame.size.width, window.size.width - 8, @"%@ filled the screen", name);
+    }
+}
+
+- (void)testMetalFXSafeAreaLayerMatchesVideoFrame {
+    XCUIApplication *app = [self launchMode:@"metalfx-safe"];
+    [self scrollSettingsUntilHittable:@"Safe Area"];
+    [self tapIdentifier:@"Safe Area"];
+    [self scrollSettingsUntilHittable:@"twilight.metalfx.1"];
+    [self tapIdentifier:@"twilight.metalfx.1"];
+    XCUIElement *done = app.navigationBars[@"Settings"].buttons[@"Done"];
+    if (!done.exists) {
+        done = app.buttons[@"Done"];
+    }
+    XCTAssertTrue([done waitForExistenceWithTimeout:2], @"Settings Done button is missing");
+    [done tap];
+
+    [[XCUIDevice sharedDevice] setOrientation:UIDeviceOrientationLandscapeLeft];
+    XCUIElement *video = [self waitForIdentifier:@"twilight.video" timeout:4];
+    XCUIElement *metal = [self waitForIdentifier:@"twilight.metalfx.layer" timeout:4];
+    [self assertElement:metal matches:video named:@"MetalFX layer"];
+    XCUIElement *status = [self waitForIdentifier:@"twilight.metalfx.status" timeout:4];
+    NSString *line = status.label.length > 0 ? status.label : [status.value description];
+    XCTAssertTrue([line containsString:@"fallback"] || [line containsString:@"active"] || [line containsString:@"starting"],
+                  @"MetalFX status: %@", line);
+    [self saveShot:@"metalfx-safe-area"];
 }
 
 @end

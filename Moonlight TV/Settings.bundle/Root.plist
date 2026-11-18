@@ -266,6 +266,16 @@
 			<key>Type</key>
 			<string>PSToggleSwitchSpecifier</string>
 			<key>Title</key>
+			<string>MetalFX Upscaling</string>
+			<key>Key</key>
+			<string>metalFXEnabled</string>
+			<key>DefaultValue</key>
+			<false/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Title</key>
 			<string>Adaptive Bitrate</string>
 			<key>Key</key>
 			<string>enableAdaptiveBitrate</string>

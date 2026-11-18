@@ -18,8 +18,10 @@
 #import "TwilightTheme.h"
 #import "Utils.h"
 #import "TwilightInputLog.h"
+#import "MetalFXFrameRenderer.h"
 #import <AVFoundation/AVFoundation.h>
 
+#include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -53,6 +55,7 @@
     UIView *_endMenu;
     UIButton *_endMenuFirstButton;
     StreamView *_streamView;
+    VideoDecoderRenderer *_uiTestDecoder;
     UIScrollView *_scrollView;
     BOOL _userIsInteracting;
     BOOL _streamFinished;
@@ -150,7 +153,7 @@
         return NO;
     }
     NSString *which = [NSString stringWithUTF8String:mode];
-    return [which isEqualToString:@"stream"] || [which isEqualToString:@"keyboard"];
+    return [which isEqualToString:@"stream"] || [which isEqualToString:@"keyboard"] || [which isEqualToString:@"metalfx"] || [which isEqualToString:@"metalfx-safe"];
 #else
     return NO;
 #endif
@@ -182,6 +185,49 @@
     picture.videoGravity = AVLayerVideoGravityResize;
     [_streamView.layer addSublayer:picture];
     [self layoutStreamSurface];
+    [_streamView setNeedsLayout];
+    [_streamView layoutIfNeeded];
+    [self installMetalFXTestHook];
+}
+
+- (BOOL)uiTestMetalFXFixture {
+#if DEBUG && !TARGET_OS_TV
+    const char *mode = getenv("TWILIGHT_UITEST");
+    return mode != NULL && (strcmp(mode, "metalfx") == 0 || strcmp(mode, "metalfx-safe") == 0);
+#else
+    return NO;
+#endif
+}
+
+- (void)installMetalFXTestHook {
+    if (![self uiTestMetalFXFixture]) {
+        return;
+    }
+    if (_settings.metalFXEnabled) {
+        float aspect = self.streamConfig.height > 0 ? (float)self.streamConfig.width / (float)self.streamConfig.height : (16.0f / 9.0f);
+        _uiTestDecoder = [[VideoDecoderRenderer alloc] initWithView:_streamView
+                                                           callbacks:self
+                                                  streamAspectRatio:aspect
+                                                     useFramePacing:NO
+                                                      enableMetalFX:YES
+                                                                hdr:_settings.enableHdr];
+    }
+    else {
+        [MetalFXFrameRenderer publishOff];
+    }
+    if (_settings.metalFXEnabled) {
+        [_streamView installMetalFXLayoutLayer];
+    }
+    UILabel *status = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 8, 8)];
+    status.accessibilityIdentifier = @"twilight.metalfx.status";
+    status.isAccessibilityElement = YES;
+    status.userInteractionEnabled = NO;
+    status.textColor = [UIColor clearColor];
+    NSString *line = [MetalFXFrameRenderer statsLine];
+    status.text = line;
+    status.accessibilityLabel = line;
+    status.accessibilityValue = line;
+    [_streamView addSubview:status];
     [_streamView setNeedsLayout];
     [_streamView layoutIfNeeded];
 }
@@ -420,6 +466,7 @@
         }
         [self->_hudBar setFps:fps bitrate:bitrate rtt:rtt];
         [self layoutHudBar];
+        [self updateOverlayText:[MetalFXFrameRenderer statsLine]];
         [self.view bringSubviewToFront:self->_hudBar];
     });
 }
@@ -526,6 +573,9 @@
         }
         frame.origin.x = insets.left + (self.view.bounds.size.width - insets.left - insets.right - frame.size.width) / 2.0;
         frame.origin.y = insets.top + 8;
+        if (_statsUpdateTimer != nil && _hudBar != nil) {
+            frame.origin.y = CGRectGetMaxY(_hudBar.frame) + 8;
+        }
         _overlayView.frame = frame;
         [_overlayView setHidden:NO];
     }

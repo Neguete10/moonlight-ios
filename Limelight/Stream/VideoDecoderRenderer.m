@@ -9,16 +9,46 @@
 #import "VideoDecoderRenderer.h"
 #import "StreamView.h"
 #import "StreamVideoLayout.h"
+#import "MetalFXFrameRenderer.h"
+
+#import <VideoToolbox/VideoToolbox.h>
 
 #include <libavcodec/avcodec.h>
 #include <libavcodec/cbs.h>
 #include <libavcodec/cbs_av1.h>
 #include <libavformat/avio.h>
 #include <libavutil/mem.h>
+#include <unistd.h>
 
 // Private libavformat API for writing the AV1 Codec Configuration Box
 extern int ff_isom_write_av1c(AVIOContext *pb, const uint8_t *buf, int size,
                               int write_seq_header);
+
+@interface VideoDecoderRenderer ()
+- (void)renderMetalFrame:(CVPixelBufferRef)imageBuffer;
+- (void)abandonMetalFX:(NSString *)reason requestIdr:(BOOL)requestIdr;
+@end
+
+static void MetalFXDecompressionCallback(void *decompressionOutputRefCon,
+                                         void *sourceFrameRefCon,
+                                         OSStatus status,
+                                         VTDecodeInfoFlags infoFlags,
+                                         CVImageBufferRef imageBuffer,
+                                         CMTime presentationTimeStamp,
+                                         CMTime presentationDuration) {
+    (void)sourceFrameRefCon;
+    (void)infoFlags;
+    (void)presentationTimeStamp;
+    (void)presentationDuration;
+    VideoDecoderRenderer *renderer = (__bridge VideoDecoderRenderer *)decompressionOutputRefCon;
+    if (renderer == nil || status != noErr || imageBuffer == nil) {
+        if (status != noErr) {
+            Log(LOG_W, @"MetalFX decode status %d", (int)status);
+        }
+        return;
+    }
+    [renderer renderMetalFrame:imageBuffer];
+}
 
 @implementation VideoDecoderRenderer {
     StreamView* _view;
@@ -28,6 +58,15 @@ extern int ff_isom_write_av1c(AVIOContext *pb, const uint8_t *buf, int size,
     AVSampleBufferDisplayLayer* displayLayer;
     int videoFormat;
     int frameRate;
+
+    MetalFXFrameRenderer *_metalRenderer;
+    NSThread *_metalPumpThread;
+    NSLock *_metalSessionLock;
+    volatile BOOL _metalPumpStop;
+    VTDecompressionSessionRef _decompressionSession;
+    CMVideoFormatDescriptionRef _sessionFormat;
+    OSType _sessionPixelFormat;
+    BOOL _metalAbandoned;
     
     NSMutableArray *parameterSetBuffers;
     NSData *masteringDisplayColorVolume;
@@ -83,16 +122,42 @@ extern int ff_isom_write_av1c(AVIOContext *pb, const uint8_t *buf, int size,
 
 - (id)initWithView:(StreamView*)view callbacks:(id<ConnectionCallbacks>)callbacks streamAspectRatio:(float)aspectRatio useFramePacing:(BOOL)useFramePacing
 {
+    return [self initWithView:view callbacks:callbacks streamAspectRatio:aspectRatio useFramePacing:useFramePacing enableMetalFX:NO hdr:NO];
+}
+
+- (id)initWithView:(StreamView*)view callbacks:(id<ConnectionCallbacks>)callbacks streamAspectRatio:(float)aspectRatio useFramePacing:(BOOL)useFramePacing enableMetalFX:(BOOL)enableMetalFX hdr:(BOOL)hdr
+{
     self = [super init];
     
     _view = view;
     _callbacks = callbacks;
     _streamAspectRatio = aspectRatio;
     framePacing = useFramePacing;
+    _metalSessionLock = [[NSLock alloc] init];
     
     parameterSetBuffers = [[NSMutableArray alloc] init];
-    
-    [self reinitializeDisplayLayer];
+
+    if (!enableMetalFX) {
+        [MetalFXFrameRenderer publishOffIfNotIdle];
+        [self reinitializeDisplayLayer];
+        return self;
+    }
+
+    _metalRenderer = [MetalFXFrameRenderer rendererForView:_view hdr:hdr streamAspectRatio:_streamAspectRatio];
+    if (_metalRenderer == nil) {
+        [self reinitializeDisplayLayer];
+        return self;
+    }
+    __weak VideoDecoderRenderer *weakRenderer = self;
+    _metalRenderer.fallbackHandler = ^(NSString *reason) {
+        [weakRenderer abandonMetalFX:reason requestIdr:YES];
+    };
+    _metalRenderer.firstFrameHandler = ^{
+        VideoDecoderRenderer *strong = weakRenderer;
+        if (strong != nil) {
+            [strong->_callbacks videoContentShown];
+        }
+    };
     
     return self;
 }
@@ -103,8 +168,11 @@ extern int ff_isom_write_av1c(AVIOContext *pb, const uint8_t *buf, int size,
     self->frameRate = frameRate;
 }
 
-- (void)start
+- (void)startDisplayLink
 {
+    if (_displayLink != nil) {
+        return;
+    }
     _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(displayLinkCallback:)];
     if (@available(iOS 15.0, tvOS 15.0, *)) {
         _displayLink.preferredFrameRateRange = CAFrameRateRangeMake(self->frameRate, self->frameRate, self->frameRate);
@@ -113,6 +181,71 @@ extern int ff_isom_write_av1c(AVIOContext *pb, const uint8_t *buf, int size,
         _displayLink.preferredFramesPerSecond = self->frameRate;
     }
     [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
+}
+
+- (void)start
+{
+    // MetalFX presents as soon as a frame is decoded. Waiting for the display
+    // link first would add a refresh of delay before decode even starts.
+    if (_metalRenderer != nil) {
+        [self startMetalFramePump];
+        return;
+    }
+    [self startDisplayLink];
+}
+
+- (void)startMetalFramePump {
+    if (_metalPumpThread != nil) {
+        return;
+    }
+    _metalPumpStop = NO;
+    _metalPumpThread = [[NSThread alloc] initWithTarget:self selector:@selector(metalFramePump) object:nil];
+    _metalPumpThread.name = @"MetalFX frame pump";
+    _metalPumpThread.qualityOfService = NSQualityOfServiceUserInteractive;
+    [_metalPumpThread start];
+}
+
+- (void)stopMetalFramePump {
+    _metalPumpStop = YES;
+    NSThread *thread = _metalPumpThread;
+    if (thread == nil || [NSThread currentThread] == thread) {
+        return;
+    }
+    // Service the main run loop while waiting. A present only returns its
+    // drawable there, and the pump may be blocked inside VideoToolbox until
+    // that drawable (and its pixel buffer) comes back.
+    for (int i = 0; i < 2000 && !thread.isFinished; i++) {
+        if ([NSThread isMainThread]) {
+            [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.001]];
+        }
+        else {
+            usleep(1000);
+        }
+    }
+    if (!thread.isFinished) {
+        Log(LOG_W, @"MetalFX frame pump was still running when the decoder stopped");
+    }
+    _metalPumpThread = nil;
+}
+
+- (void)metalFramePump {
+    while (!_metalPumpStop) {
+        VIDEO_FRAME_HANDLE handle;
+        PDECODE_UNIT du;
+        if (!LiPollNextVideoFrame(&handle, &du)) {
+            usleep(200);
+            continue;
+        }
+        // Every compressed frame has to be decoded. Skipping one breaks
+        // prediction and the picture turns into macroblocks. Stale output
+        // is dropped after decode, in the renderer.
+        if (_metalPumpStop) {
+            LiCompleteVideoFrame(handle, DR_OK);
+            continue;
+        }
+        int status = DrSubmitDecodeUnit(du);
+        LiCompleteVideoFrame(handle, status);
+    }
 }
 
 // TODO: Refactor this
@@ -146,7 +279,171 @@ int DrSubmitDecodeUnit(PDECODE_UNIT decodeUnit);
 
 - (void)stop
 {
+    [self stopMetalFramePump];
     [_displayLink invalidate];
+    _displayLink = nil;
+    [self teardownMetalDecoder];
+}
+
+- (void)teardownMetalDecoder {
+    [_metalSessionLock lock];
+    MetalFXFrameRenderer *metal = _metalRenderer;
+    _metalRenderer = nil;
+    if (metal != nil) {
+        metal.fallbackHandler = nil;
+        metal.firstFrameHandler = nil;
+    }
+    if (_decompressionSession != NULL) {
+        VTDecompressionSessionWaitForAsynchronousFrames(_decompressionSession);
+        VTDecompressionSessionInvalidate(_decompressionSession);
+        CFRelease(_decompressionSession);
+        _decompressionSession = NULL;
+    }
+    _sessionFormat = NULL;
+    [_metalSessionLock unlock];
+    [metal invalidate];
+}
+
+- (void)abandonMetalFX:(NSString *)reason requestIdr:(BOOL)requestIdr {
+    _metalPumpStop = YES;
+    if (![NSThread isMainThread]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self abandonMetalFX:reason requestIdr:requestIdr];
+        });
+        return;
+    }
+    if (_metalAbandoned || (_metalRenderer == nil && _decompressionSession == NULL)) {
+        [self stopMetalFramePump];
+        if (_displayLink == nil && _metalRenderer == nil) {
+            [self startDisplayLink];
+        }
+        return;
+    }
+    _metalAbandoned = YES;
+    [self stopMetalFramePump];
+    Log(LOG_W, @"MetalFX %@", reason);
+    [MetalFXFrameRenderer publishFallback];
+    [self teardownMetalDecoder];
+    if (displayLayer == nil) {
+        [self reinitializeDisplayLayer];
+    }
+    if (requestIdr) {
+        LiRequestIdrFrame();
+    }
+    if (_displayLink == nil) {
+        [self startDisplayLink];
+    }
+}
+
+- (void)dealloc {
+    _metalPumpStop = YES;
+    [self teardownMetalDecoder];
+}
+
+- (void)applyMetalColorInfo {
+    int matrix = _metalRenderer.expects10Bit ? 2 : 0;
+    BOOL fullRange = NO;
+    if (formatDesc != NULL) {
+        CFStringRef value = (CFStringRef)CMFormatDescriptionGetExtension(formatDesc, kCMFormatDescriptionExtension_YCbCrMatrix);
+        if (value != NULL) {
+            if (CFEqual(value, kCMFormatDescriptionYCbCrMatrix_ITU_R_601_4) ||
+                CFEqual(value, kCMFormatDescriptionYCbCrMatrix_SMPTE_240M_1995)) {
+                matrix = 1;
+            }
+            else if (CFEqual(value, kCMFormatDescriptionYCbCrMatrix_ITU_R_2020)) {
+                matrix = 2;
+            }
+            else if (CFEqual(value, kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2)) {
+                matrix = 0;
+            }
+        }
+        CFBooleanRef full = (CFBooleanRef)CMFormatDescriptionGetExtension(formatDesc, kCMFormatDescriptionExtension_FullRangeVideo);
+        fullRange = full == kCFBooleanTrue;
+    }
+    [_metalRenderer setColorMatrix:matrix fullRange:fullRange];
+}
+
+- (BOOL)ensureMetalSession {
+    if (_metalRenderer == nil || formatDesc == NULL) {
+        return NO;
+    }
+    BOOL stream10 = (videoFormat & VIDEO_FORMAT_MASK_10BIT) != 0;
+    if (stream10 && !_metalRenderer.expects10Bit) {
+        Log(LOG_W, @"MetalFX SDR path cannot show a 10-bit stream");
+        return NO;
+    }
+    OSType pixelFormat = stream10 ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
+    if (_decompressionSession != NULL && _sessionFormat == formatDesc && _sessionPixelFormat == pixelFormat) {
+        return YES;
+    }
+    if (_decompressionSession != NULL) {
+        VTDecompressionSessionWaitForAsynchronousFrames(_decompressionSession);
+        VTDecompressionSessionInvalidate(_decompressionSession);
+        CFRelease(_decompressionSession);
+        _decompressionSession = NULL;
+    }
+    NSDictionary *destination = @{
+        (id)kCVPixelBufferPixelFormatTypeKey: @(pixelFormat),
+        (id)kCVPixelBufferMetalCompatibilityKey: @YES,
+        (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
+    };
+    VTDecompressionOutputCallbackRecord record;
+    record.decompressionOutputCallback = MetalFXDecompressionCallback;
+    record.decompressionOutputRefCon = (__bridge void *)self;
+    OSStatus status = VTDecompressionSessionCreate(kCFAllocatorDefault,
+                                                   formatDesc,
+                                                   NULL,
+                                                   (__bridge CFDictionaryRef)destination,
+                                                   &record,
+                                                   &_decompressionSession);
+    if (status != noErr || _decompressionSession == NULL) {
+        Log(LOG_W, @"MetalFX decompression session failed: %d", (int)status);
+        _decompressionSession = NULL;
+        return NO;
+    }
+    VTSessionSetProperty(_decompressionSession, kVTDecompressionPropertyKey_RealTime, kCFBooleanTrue);
+    _sessionFormat = formatDesc;
+    _sessionPixelFormat = pixelFormat;
+    [self applyMetalColorInfo];
+    return YES;
+}
+
+- (BOOL)submitMetalSampleBuffer:(CMSampleBufferRef)sampleBuffer {
+    [_metalSessionLock lock];
+    if (_metalPumpStop || _metalAbandoned || _metalRenderer == nil) {
+        [_metalSessionLock unlock];
+        return NO;
+    }
+    BOOL ready = [self ensureMetalSession];
+    VTDecompressionSessionRef session = _decompressionSession;
+    if (session != NULL) {
+        CFRetain(session);
+    }
+    [_metalSessionLock unlock];
+    if (!ready || session == NULL) {
+        [self abandonMetalFX:@"decompression session was not created" requestIdr:NO];
+        return NO;
+    }
+    VTDecodeInfoFlags info = 0;
+    OSStatus status = VTDecompressionSessionDecodeFrame(session,
+                                                        sampleBuffer,
+                                                        kVTDecodeFrame_EnableAsynchronousDecompression,
+                                                        NULL,
+                                                        &info);
+    CFRelease(session);
+    if (status != noErr) {
+        Log(LOG_W, @"MetalFX decode submission failed: %d", (int)status);
+        [self abandonMetalFX:@"decode submission failed" requestIdr:NO];
+        return NO;
+    }
+    return YES;
+}
+
+- (void)renderMetalFrame:(CVPixelBufferRef)imageBuffer {
+    if (_metalRenderer == nil) {
+        return;
+    }
+    [_metalRenderer renderPixelBuffer:imageBuffer];
 }
 
 #define NALU_START_PREFIX_SIZE 3
@@ -519,8 +816,9 @@ int DrSubmitDecodeUnit(PDECODE_UNIT decodeUnit);
         return DR_NEED_IDR;
     }
     
-    // Check for previous decoder errors before doing anything
-    if (displayLayer.status == AVQueuedSampleBufferRenderingStatusFailed) {
+    // Check for previous decoder errors before doing anything.
+    // The MetalFX path has no display layer until it falls back.
+    if (_metalRenderer == nil && displayLayer != nil && displayLayer.status == AVQueuedSampleBufferRenderingStatusFailed) {
         Log(LOG_E, @"Display layer rendering failed: %@", displayLayer.error);
         
         // Recreate the display layer. We are already on the main thread,
@@ -596,6 +894,23 @@ int DrSubmitDecodeUnit(PDECODE_UNIT decodeUnit);
         CFRelease(dataBlockBuffer);
         CFRelease(frameBlockBuffer);
         return DR_NEED_IDR;
+    }
+
+    if (_metalRenderer != nil) {
+        if ([self submitMetalSampleBuffer:sampleBuffer]) {
+            CFRelease(dataBlockBuffer);
+            CFRelease(frameBlockBuffer);
+            CFRelease(sampleBuffer);
+            return DR_OK;
+        }
+        // The sample was not consumed. An IDR can initialize the display
+        // layer we just installed. A delta frame cannot, so ask for one.
+        if (du->frameType != FRAME_TYPE_IDR || displayLayer == nil) {
+            CFRelease(dataBlockBuffer);
+            CFRelease(frameBlockBuffer);
+            CFRelease(sampleBuffer);
+            return DR_NEED_IDR;
+        }
     }
 
     // Enqueue the next frame
