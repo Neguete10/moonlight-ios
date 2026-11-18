@@ -214,10 +214,27 @@
 }
 
 - (BOOL)logContains:(NSString *)needle within:(NSTimeInterval)timeout {
-    XCUIElement *log = [self keyLog];
-    NSPredicate *predicate = [NSPredicate predicateWithFormat:@"label CONTAINS %@", needle];
-    XCTNSPredicateExpectation *expectation = [[XCTNSPredicateExpectation alloc] initWithPredicate:predicate object:log];
-    return [XCTWaiter waitForExpectations:@[expectation] timeout:timeout] == XCTWaiterResultCompleted;
+    // A predicate on XCUIElement.label does not observe accessibilityLabel
+    // updates, so a line that is already on screen can still time out.
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
+    do {
+        XCUIElement *log = [self keyLog];
+        if (log.exists) {
+            NSString *label = log.label ?: @"";
+            NSString *value = @"";
+            if (log.value != nil && ![log.value isKindOfClass:[NSNull class]]) {
+                value = [log.value description];
+            }
+            if ([label containsString:needle] || [value containsString:needle]) {
+                return YES;
+            }
+        }
+        if ([deadline timeIntervalSinceNow] <= 0) {
+            break;
+        }
+        [self spinFor:0.25];
+    } while ([deadline timeIntervalSinceNow] > 0);
+    return NO;
 }
 
 - (void)tapIdentifier:(NSString *)identifier expecting:(NSString *)needle {
