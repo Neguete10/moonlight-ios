@@ -39,6 +39,8 @@
 @property (nonatomic) BOOL quitAppAfter;
 @property (nonatomic) BOOL metalFXEnabled;
 @property (nonatomic) NSInteger metalFXScale;
+@property (nonatomic) BOOL spatialAudio;
+@property (nonatomic) BOOL spatialHeadTracking;
 
 - (id) initFromSettings:(Settings*)settings;
 

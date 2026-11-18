@@ -286,6 +286,34 @@
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
 			<key>Title</key>
+			<string>Audio</string>
+			<key>FooterText</key>
+			<string>Spatial Audio asks the host for surround and renders it on headphones and the built-in speakers. Head Tracking turns with supported headphones when the device allows it. Both are off until you turn them on.</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Title</key>
+			<string>Spatial Audio</string>
+			<key>Key</key>
+			<string>spatialAudio</string>
+			<key>DefaultValue</key>
+			<false/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Title</key>
+			<string>Head Tracking</string>
+			<key>Key</key>
+			<string>spatialHeadTracking</string>
+			<key>DefaultValue</key>
+			<false/>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
 			<string>Troubleshooting</string>
 		</dict>
 		<dict>

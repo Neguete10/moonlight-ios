@@ -14,6 +14,12 @@
 #import "MetalFXLayout.h"
 #import "KeyboardSupport.h"
 #import "TwilightOnScreenKeyboard.h"
+#import "SpatialAudio.h"
+
+#import <AVFoundation/AVFoundation.h>
+#import <AudioToolbox/AudioToolbox.h>
+#import <stdint.h>
+#import <string.h>
 
 @interface TwilightUnitTests : XCTestCase
 @end
@@ -368,6 +374,241 @@
     }
     XCTAssertFalse(schedule.presentInFlight);
     XCTAssertEqual(schedule.presentedFrames + schedule.droppedFrames, schedule.submittedFrames);
+}
+
+- (void)testSpatialLayoutTagsMatchTheSurroundBed {
+    XCTAssertEqual(TwilightSpatialLayoutForChannelCount(6), TwilightSpatialLayout51);
+    XCTAssertEqual(TwilightSpatialLayoutForChannelCount(8), TwilightSpatialLayout71);
+    XCTAssertEqual(TwilightSpatialLayoutForChannelCount(2), TwilightSpatialLayoutNone);
+    XCTAssertEqual(TwilightSpatialLayoutForChannelCount(1), TwilightSpatialLayoutNone);
+    XCTAssertEqual(TwilightSpatialLayoutForChannelCount(4), TwilightSpatialLayoutNone);
+    XCTAssertEqual(TwilightSpatialLayoutForChannelCount(12), TwilightSpatialLayoutNone);
+
+    XCTAssertEqualObjects(TwilightSpatialLayoutName(TwilightSpatialLayout51), @"5.1");
+    XCTAssertEqualObjects(TwilightSpatialLayoutName(TwilightSpatialLayout71), @"7.1");
+    XCTAssertEqualObjects(TwilightSpatialLayoutName(TwilightSpatialLayoutNone), @"stereo");
+
+    XCTAssertEqual(TwilightSpatialChannelLayoutTag(6), (uint32_t)kAudioChannelLayoutTag_WAVE_5_1_B);
+    XCTAssertEqual(TwilightSpatialChannelLayoutTag(8), (uint32_t)kAudioChannelLayoutTag_WAVE_7_1);
+    XCTAssertEqual(TwilightSpatialChannelLayoutTag(2), 0u);
+    XCTAssertEqual(TwilightSpatialChannelLayoutTag(0), 0u);
+}
+
+- (void)testSpatialRouteKinds {
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortHeadphones), TwilightSpatialRouteHeadphones);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortBluetoothA2DP), TwilightSpatialRouteHeadphones);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortBluetoothHFP), TwilightSpatialRouteHeadphones);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortBluetoothLE), TwilightSpatialRouteHeadphones);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortAirPlay), TwilightSpatialRouteHeadphones);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortBuiltInSpeaker), TwilightSpatialRouteSpeakers);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortBuiltInReceiver), TwilightSpatialRouteSpeakers);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortHDMI), TwilightSpatialRouteExternal);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortUSBAudio), TwilightSpatialRouteExternal);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(AVAudioSessionPortCarAudio), TwilightSpatialRouteExternal);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(nil), TwilightSpatialRouteExternal);
+    XCTAssertEqual(TwilightSpatialRouteKindForPort(@""), TwilightSpatialRouteExternal);
+}
+
+- (void)testSpatialStatusLine {
+    NSString *off = TwilightSpatialStatusLine(NO, NO, NO, TwilightSpatialLayoutNone, TwilightSpatialRouteSpeakers, NO, NO);
+    XCTAssertEqualObjects(off, @"Spatial audio off");
+
+    NSString *active = TwilightSpatialStatusLine(YES, YES, NO, TwilightSpatialLayout71, TwilightSpatialRouteHeadphones, NO, NO);
+    XCTAssertEqualObjects(active, @"Spatial audio active 7.1 headphones");
+
+    NSString *tracked = TwilightSpatialStatusLine(YES, YES, YES, TwilightSpatialLayout51, TwilightSpatialRouteHeadphones, NO, NO);
+    XCTAssertEqualObjects(tracked, @"Spatial audio active 5.1 headphones, head tracking");
+
+    NSString *speakers = TwilightSpatialStatusLine(YES, YES, YES, TwilightSpatialLayout71, TwilightSpatialRouteSpeakers, NO, NO);
+    XCTAssertEqualObjects(speakers, @"Spatial audio active 7.1 speakers");
+
+    NSString *fallback = TwilightSpatialStatusLine(YES, NO, NO, TwilightSpatialLayout51, TwilightSpatialRouteSpeakers, YES, NO);
+    XCTAssertEqualObjects(fallback, @"Spatial audio fallback 5.1");
+
+    NSString *passthrough = TwilightSpatialStatusLine(YES, NO, NO, TwilightSpatialLayout71, TwilightSpatialRouteExternal, NO, YES);
+    XCTAssertEqualObjects(passthrough, @"Spatial audio passthrough 7.1");
+}
+
+- (void)testSpatialDownmixPlacesEachBedChannel {
+    int16_t out[2] = {0, 0};
+
+    int16_t left[6] = {1000, 0, 0, 0, 0, 0};
+    TwilightSpatialDownmixToStereo(left, 1, 6, out);
+    XCTAssertEqual(out[0], 1000);
+    XCTAssertEqual(out[1], 0);
+
+    int16_t right[6] = {0, 1000, 0, 0, 0, 0};
+    TwilightSpatialDownmixToStereo(right, 1, 6, out);
+    XCTAssertEqual(out[0], 0);
+    XCTAssertEqual(out[1], 1000);
+
+    int16_t center[6] = {0, 0, 1000, 0, 0, 0};
+    TwilightSpatialDownmixToStereo(center, 1, 6, out);
+    XCTAssertEqual(out[0], 707);
+    XCTAssertEqual(out[1], 707);
+
+    int16_t lfe[6] = {0, 0, 0, 1000, 0, 0};
+    TwilightSpatialDownmixToStereo(lfe, 1, 6, out);
+    XCTAssertEqual(out[0], 500);
+    XCTAssertEqual(out[1], 500);
+
+    int16_t backLeft[6] = {0, 0, 0, 0, 1000, 0};
+    TwilightSpatialDownmixToStereo(backLeft, 1, 6, out);
+    XCTAssertEqual(out[0], 707);
+    XCTAssertEqual(out[1], 0);
+
+    int16_t backRight[6] = {0, 0, 0, 0, 0, 1000};
+    TwilightSpatialDownmixToStereo(backRight, 1, 6, out);
+    XCTAssertEqual(out[0], 0);
+    XCTAssertEqual(out[1], 707);
+
+    int16_t sideLeft[8] = {0, 0, 0, 0, 0, 0, 1000, 0};
+    TwilightSpatialDownmixToStereo(sideLeft, 1, 8, out);
+    XCTAssertEqual(out[0], 707);
+    XCTAssertEqual(out[1], 0);
+
+    int16_t sideRight[8] = {0, 0, 0, 0, 0, 0, 0, 1000};
+    TwilightSpatialDownmixToStereo(sideRight, 1, 8, out);
+    XCTAssertEqual(out[0], 0);
+    XCTAssertEqual(out[1], 707);
+
+    int16_t hot[6] = {30000, 0, 30000, 0, 30000, 0};
+    TwilightSpatialDownmixToStereo(hot, 1, 6, out);
+    XCTAssertEqual(out[0], INT16_MAX);
+    XCTAssertEqual(out[1], (int16_t)((30000 * 707) / 1000));
+}
+
+- (void)testSpatialSettingsDefaultOffAndRoundTrip {
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    BOOL audio = TwilightSpatialAudioEnabled();
+    BOOL head = TwilightSpatialHeadTrackingEnabled();
+
+    [defaults removeObjectForKey:TwilightSpatialAudioEnabledKey()];
+    [defaults removeObjectForKey:TwilightSpatialHeadTrackingEnabledKey()];
+    XCTAssertFalse(TwilightSpatialAudioEnabled());
+    XCTAssertFalse(TwilightSpatialHeadTrackingEnabled());
+    XCTAssertEqual(TwilightSpatialSurroundChannelCount(NO), 0);
+    XCTAssertEqual(TwilightSpatialSurroundChannelCount(YES), 8);
+    XCTAssertEqualObjects(TwilightSpatialCurrentStatusLine(), @"Spatial audio off");
+
+    TwilightSpatialSetAudioEnabled(YES);
+    TwilightSpatialSetHeadTrackingEnabled(YES);
+    XCTAssertTrue(TwilightSpatialAudioEnabled());
+    XCTAssertTrue(TwilightSpatialHeadTrackingEnabled());
+    XCTAssertEqual(TwilightSpatialSurroundChannelCount(TwilightSpatialAudioEnabled()), 8);
+
+    TwilightSpatialSetAudioEnabled(NO);
+    XCTAssertFalse(TwilightSpatialAudioEnabled());
+    XCTAssertTrue(TwilightSpatialHeadTrackingEnabled());
+    XCTAssertEqualObjects(TwilightSpatialCurrentStatusLine(), @"Spatial audio off");
+
+    TwilightSpatialSetAudioEnabled(audio);
+    TwilightSpatialSetHeadTrackingEnabled(head);
+}
+
+- (void)testSpatialRenderAcceptsInterleavedAndPlanarBuffers {
+    enum { frames = 4 };
+    float left[frames] = {0.25f, 0.5f, -0.25f, -1.0f};
+    float right[frames] = {1.0f, 0.0f, 0.5f, 0.125f};
+    float interleaved[frames * 2];
+    memset(interleaved, 0x5a, sizeof(interleaved));
+    uint8_t canary[32];
+    memset(canary, 0xab, sizeof(canary));
+
+    // RemoteIO's packed stereo list has one buffer. A second slot may sit
+    // next to it in memory; writing it is the device crash.
+    struct {
+        UInt32 mNumberBuffers;
+        AudioBuffer mBuffers[2];
+    } packed;
+    memset(&packed, 0, sizeof(packed));
+    packed.mNumberBuffers = 1;
+    packed.mBuffers[0].mNumberChannels = 2;
+    packed.mBuffers[0].mDataByteSize = sizeof(interleaved);
+    packed.mBuffers[0].mData = interleaved;
+    packed.mBuffers[1].mNumberChannels = 1;
+    packed.mBuffers[1].mDataByteSize = sizeof(canary);
+    packed.mBuffers[1].mData = canary;
+
+    XCTAssertTrue(TwilightSpatialRenderStereo((AudioBufferList *)&packed, frames, left, right, YES));
+    for (UInt32 frame = 0; frame < frames; frame++) {
+        XCTAssertEqualWithAccuracy(interleaved[frame * 2], left[frame], 0.0001f);
+        XCTAssertEqualWithAccuracy(interleaved[frame * 2 + 1], right[frame], 0.0001f);
+    }
+    uint8_t expectedCanary[32];
+    memset(expectedCanary, 0xab, sizeof(expectedCanary));
+    XCTAssertEqual(memcmp(canary, expectedCanary, sizeof(canary)), 0);
+
+    packed.mNumberBuffers = 2;
+    memset(interleaved, 0x5a, sizeof(interleaved));
+    XCTAssertTrue(TwilightSpatialRenderStereo((AudioBufferList *)&packed, frames, left, right, YES));
+    XCTAssertEqualWithAccuracy(interleaved[0], left[0], 0.0001f);
+    XCTAssertEqualWithAccuracy(interleaved[1], right[0], 0.0001f);
+    XCTAssertEqual(memcmp(canary, expectedCanary, sizeof(canary)), 0);
+
+    float saved = interleaved[0];
+    packed.mNumberBuffers = 1;
+    packed.mBuffers[0].mDataByteSize = sizeof(float);
+    XCTAssertFalse(TwilightSpatialRenderStereo((AudioBufferList *)&packed, frames, left, right, YES));
+    XCTAssertEqualWithAccuracy(interleaved[0], saved, 0.0001f);
+
+    float planarLeft[frames];
+    float planarRight[frames];
+    memset(planarLeft, 0x11, sizeof(planarLeft));
+    memset(planarRight, 0x22, sizeof(planarRight));
+    struct {
+        UInt32 mNumberBuffers;
+        AudioBuffer mBuffers[2];
+    } planar;
+    memset(&planar, 0, sizeof(planar));
+    planar.mNumberBuffers = 2;
+    planar.mBuffers[0].mNumberChannels = 1;
+    planar.mBuffers[0].mDataByteSize = sizeof(planarLeft);
+    planar.mBuffers[0].mData = planarLeft;
+    planar.mBuffers[1].mNumberChannels = 1;
+    planar.mBuffers[1].mDataByteSize = sizeof(planarRight);
+    planar.mBuffers[1].mData = planarRight;
+    XCTAssertTrue(TwilightSpatialRenderStereo((AudioBufferList *)&planar, frames, left, right, NO));
+    for (UInt32 frame = 0; frame < frames; frame++) {
+        XCTAssertEqualWithAccuracy(planarLeft[frame], left[frame], 0.0001f);
+        XCTAssertEqualWithAccuracy(planarRight[frame], right[frame], 0.0001f);
+    }
+
+    planar.mBuffers[1].mDataByteSize = sizeof(float);
+    float untouched = planarRight[1];
+    XCTAssertFalse(TwilightSpatialRenderStereo((AudioBufferList *)&planar, frames, left, right, NO));
+    XCTAssertEqualWithAccuracy(planarRight[1], untouched, 0.0001f);
+    planar.mBuffers[1].mData = NULL;
+    planar.mBuffers[1].mDataByteSize = sizeof(planarRight);
+    XCTAssertFalse(TwilightSpatialRenderStereo((AudioBufferList *)&planar, frames, left, right, NO));
+
+    float bed[] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f};
+    float channels[6][2];
+    memset(channels, 0, sizeof(channels));
+    struct {
+        UInt32 mNumberBuffers;
+        AudioBuffer mBuffers[6];
+    } mixer;
+    memset(&mixer, 0, sizeof(mixer));
+    mixer.mNumberBuffers = 6;
+    for (UInt32 channel = 0; channel < 6; channel++) {
+        mixer.mBuffers[channel].mNumberChannels = 1;
+        mixer.mBuffers[channel].mDataByteSize = sizeof(channels[channel]);
+        mixer.mBuffers[channel].mData = channels[channel];
+    }
+    XCTAssertTrue(TwilightSpatialRenderDeinterleaved((AudioBufferList *)&mixer, 2, 6, bed));
+    XCTAssertEqualWithAccuracy(channels[0][0], 1.0f, 0.0001f);
+    XCTAssertEqualWithAccuracy(channels[1][0], 2.0f, 0.0001f);
+    XCTAssertEqualWithAccuracy(channels[5][0], 6.0f, 0.0001f);
+    XCTAssertEqualWithAccuracy(channels[0][1], 7.0f, 0.0001f);
+    XCTAssertEqualWithAccuracy(channels[5][1], 12.0f, 0.0001f);
+    mixer.mNumberBuffers = 1;
+    XCTAssertFalse(TwilightSpatialRenderDeinterleaved((AudioBufferList *)&mixer, 2, 6, bed));
+    mixer.mNumberBuffers = 6;
+    mixer.mBuffers[3].mDataByteSize = sizeof(float);
+    float kept = channels[3][1];
+    XCTAssertFalse(TwilightSpatialRenderDeinterleaved((AudioBufferList *)&mixer, 2, 6, bed));
+    XCTAssertEqualWithAccuracy(channels[3][1], kept, 0.0001f);
 }
 
 @end

@@ -27,6 +27,7 @@
 #import "IdManager.h"
 #import "ConnectionHelper.h"
 
+#import "SpatialAudio.h"
 #import "TwilightTheme.h"
 #import "StreamVideoLayout.h"
 #import "MetalFXLayout.h"
@@ -748,20 +749,28 @@ static NSMutableSet* hostList;
     _streamConfig.multiController = streamSettings.multiController;
     _streamConfig.gamepadMask = [ControllerSupport getConnectedGamepadMask:_streamConfig];
     
-    // Probe for supported channel configurations
+    // Probe for supported channel configurations. Spatial audio asks the
+    // host for a 7.1 bed even when the output itself is stereo; the mixer
+    // renders that bed. Off leaves this selection as it was.
     int physicalOutputChannels = (int)[AVAudioSession sharedInstance].maximumOutputNumberOfChannels;
     Log(LOG_I, @"Audio device supports %d channels", physicalOutputChannels);
-    
-    int numberOfChannels = MIN([streamSettings.audioConfig intValue], physicalOutputChannels);
-    Log(LOG_I, @"Selected number of audio channels %d", numberOfChannels);
-    if (numberOfChannels >= 8) {
+
+    if (streamSettings.spatialAudio && !streamSettings.playAudioOnPC) {
         _streamConfig.audioConfiguration = AUDIO_CONFIGURATION_71_SURROUND;
-    }
-    else if (numberOfChannels >= 6) {
-        _streamConfig.audioConfiguration = AUDIO_CONFIGURATION_51_SURROUND;
+        Log(LOG_I, @"Selected number of audio channels %d", 8);
     }
     else {
-        _streamConfig.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
+        int numberOfChannels = MIN([streamSettings.audioConfig intValue], physicalOutputChannels);
+        Log(LOG_I, @"Selected number of audio channels %d", numberOfChannels);
+        if (numberOfChannels >= 8) {
+            _streamConfig.audioConfiguration = AUDIO_CONFIGURATION_71_SURROUND;
+        }
+        else if (numberOfChannels >= 6) {
+            _streamConfig.audioConfiguration = AUDIO_CONFIGURATION_51_SURROUND;
+        }
+        else {
+            _streamConfig.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
+        }
     }
     
     _streamConfig.serverCodecModeSupport = app.host.serverCodecModeSupport;
@@ -2079,15 +2088,20 @@ static NSMutableSet* hostList;
         }
     }
     BOOL metalFXTest = NO;
+    BOOL startSpatialTest = NO;
 #if DEBUG && !TARGET_OS_TV
     const char *uiTestMode = getenv("TWILIGHT_UITEST");
     metalFXTest = uiTestMode != NULL && (strcmp(uiTestMode, "metalfx") == 0 || strcmp(uiTestMode, "metalfx-safe") == 0);
+    startSpatialTest = uiTestMode != NULL && strcmp(uiTestMode, "spatial") == 0;
 #endif
     [self dismissViewControllerAnimated:YES completion:^{
         [self restoreShellBar];
         if (metalFXTest && !self->_uiTestStreamStarted) {
             self->_uiTestStreamStarted = YES;
             [self startUITestStream];
+        }
+        else if (startSpatialTest) {
+            [self startSpatialUITestStream];
         }
     }];
 }
@@ -2121,6 +2135,18 @@ static NSMutableSet* hostList;
         config.width = 1920;
         config.height = 1080;
     }
+    _streamConfig = config;
+    [self performSegueWithIdentifier:@"createStreamFrame" sender:nil];
+}
+
+- (void)startSpatialUITestStream {
+    StreamConfiguration *config = [[StreamConfiguration alloc] init];
+    config.appName = @"Desktop";
+    config.host = @"192.0.2.10";
+    config.width = 1920;
+    config.height = 1080;
+    config.frameRate = 60;
+    config.bitRate = 20000;
     _streamConfig = config;
     [self performSegueWithIdentifier:@"createStreamFrame" sender:nil];
 }
@@ -2637,9 +2663,9 @@ static NSMutableSet* hostList;
     }
     NSString *which = [NSString stringWithUTF8String:mode];
     [_discMan stopDiscovery];
-    if ([which isEqualToString:@"library"] || [which isEqualToString:@"settings"] || [which isEqualToString:@"hosts"]) {
+    if ([which isEqualToString:@"library"] || [which isEqualToString:@"settings"] || [which isEqualToString:@"hosts"] || [which isEqualToString:@"spatial"]) {
         [self installScreenshotLibrary];
-        if ([which isEqualToString:@"settings"]) {
+        if ([which isEqualToString:@"settings"] || [which isEqualToString:@"spatial"]) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self showSettingsSheet];
             });

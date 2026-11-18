@@ -60,6 +60,7 @@
 		FB1A67A3213245BD00507771 /* Connection.m in Sources */ = {isa = PBXBuildFile; fileRef = FB89461719F646E200339C8A /* Connection.m */; };
 		A7E1B221EF96000100AB1021 /* AdaptiveBitrate.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1B202EF96000100AB1002 /* AdaptiveBitrate.m */; };
 		A7E1B222EF96000100AB1022 /* MicrophoneCapture.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1B204EF96000100AB1004 /* MicrophoneCapture.m */; };
+		A7E1D112EF96000100AB1512 /* SpatialAudio.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1D102EF96000100AB1502 /* SpatialAudio.m */; };
 		FB1A67A5213245BD00507771 /* StreamConfiguration.m in Sources */ = {isa = PBXBuildFile; fileRef = FB89461919F646E200339C8A /* StreamConfiguration.m */; };
 		FB1A67A7213245BD00507771 /* StreamManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FB89461B19F646E200339C8A /* StreamManager.m */; };
 		FB1A67A9213245BD00507771 /* VideoDecoderRenderer.m in Sources */ = {isa = PBXBuildFile; fileRef = FB89461D19F646E200339C8A /* VideoDecoderRenderer.m */; };
@@ -128,6 +129,7 @@
 		FB89462F19F646E200339C8A /* Connection.m in Sources */ = {isa = PBXBuildFile; fileRef = FB89461719F646E200339C8A /* Connection.m */; };
 		A7E1B211EF96000100AB1011 /* AdaptiveBitrate.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1B202EF96000100AB1002 /* AdaptiveBitrate.m */; };
 		A7E1B212EF96000100AB1012 /* MicrophoneCapture.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1B204EF96000100AB1004 /* MicrophoneCapture.m */; };
+		A7E1D111EF96000100AB1511 /* SpatialAudio.m in Sources */ = {isa = PBXBuildFile; fileRef = A7E1D102EF96000100AB1502 /* SpatialAudio.m */; };
 		FB89463019F646E200339C8A /* StreamConfiguration.m in Sources */ = {isa = PBXBuildFile; fileRef = FB89461919F646E200339C8A /* StreamConfiguration.m */; };
 		FB89463119F646E200339C8A /* StreamManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FB89461B19F646E200339C8A /* StreamManager.m */; };
 		FB89463219F646E200339C8A /* VideoDecoderRenderer.m in Sources */ = {isa = PBXBuildFile; fileRef = FB89461D19F646E200339C8A /* VideoDecoderRenderer.m */; };
@@ -243,7 +245,10 @@
 		A7E1B202EF96000100AB1002 /* AdaptiveBitrate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AdaptiveBitrate.m; sourceTree = "<group>"; };
 		A7E1B203EF96000100AB1003 /* MicrophoneCapture.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MicrophoneCapture.h; sourceTree = "<group>"; };
 		A7E1B204EF96000100AB1004 /* MicrophoneCapture.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MicrophoneCapture.m; sourceTree = "<group>"; };
+		A7E1D101EF96000100AB1501 /* SpatialAudio.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SpatialAudio.h; sourceTree = "<group>"; };
+		A7E1D102EF96000100AB1502 /* SpatialAudio.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SpatialAudio.m; sourceTree = "<group>"; };
 		A7E1B310EF96000100AB1310 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A7E1D201EF96000100AB1601 /* Twilight.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Twilight.entitlements; sourceTree = "<group>"; };
 		A7E1B313EF96000100AB1313 /* LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE.txt; sourceTree = "<group>"; };
 		A7E1B316EF96000100AB1316 /* AboutViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AboutViewController.h; sourceTree = "<group>"; };
 		A7E1B317EF96000100AB1317 /* AboutViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AboutViewController.m; sourceTree = "<group>"; };
@@ -570,6 +575,7 @@
 			isa = PBXGroup;
 			children = (
 				A7E1B310EF96000100AB1310 /* PrivacyInfo.xcprivacy */,
+				A7E1D201EF96000100AB1601 /* Twilight.entitlements */,
 				FB290CFB19B2C406004C83CF /* Limelight-Info.plist */,
 				FB290CFC19B2C406004C83CF /* InfoPlist.strings */,
 				FB290CFF19B2C406004C83CF /* main.m */,
@@ -645,6 +651,8 @@
 				A7E1B202EF96000100AB1002 /* AdaptiveBitrate.m */,
 				A7E1B203EF96000100AB1003 /* MicrophoneCapture.h */,
 				A7E1B204EF96000100AB1004 /* MicrophoneCapture.m */,
+				A7E1D101EF96000100AB1501 /* SpatialAudio.h */,
+				A7E1D102EF96000100AB1502 /* SpatialAudio.m */,
 				FB89461819F646E200339C8A /* StreamConfiguration.h */,
 				FB89461919F646E200339C8A /* StreamConfiguration.m */,
 				FB89461A19F646E200339C8A /* StreamManager.h */,
@@ -1109,6 +1117,7 @@
 				FB1A67A3213245BD00507771 /* Connection.m in Sources */,
 				A7E1B221EF96000100AB1021 /* AdaptiveBitrate.m in Sources */,
 				A7E1B222EF96000100AB1022 /* MicrophoneCapture.m in Sources */,
+				A7E1D112EF96000100AB1512 /* SpatialAudio.m in Sources */,
 				FB1A67A5213245BD00507771 /* StreamConfiguration.m in Sources */,
 				FB1A67A7213245BD00507771 /* StreamManager.m in Sources */,
 				FB1A67A9213245BD00507771 /* VideoDecoderRenderer.m in Sources */,
@@ -1139,6 +1148,7 @@
 				FB89462F19F646E200339C8A /* Connection.m in Sources */,
 				A7E1B211EF96000100AB1011 /* AdaptiveBitrate.m in Sources */,
 				A7E1B212EF96000100AB1012 /* MicrophoneCapture.m in Sources */,
+				A7E1D111EF96000100AB1511 /* SpatialAudio.m in Sources */,
 				FB9AFD321A7D867C00872C98 /* AppAssetRetriever.m in Sources */,
 				FB4678FF1A565DAC00377732 /* WakeOnLanManager.m in Sources */,
 				FB53E1431BE5DC4400CD6ECE /* IdManager.m in Sources */,
@@ -1513,6 +1523,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Limelight/Twilight.entitlements;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
@@ -1580,6 +1591,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Limelight/Twilight.entitlements;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";

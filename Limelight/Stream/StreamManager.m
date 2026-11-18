@@ -7,6 +7,7 @@
 //
 
 #import "StreamManager.h"
+#import "SpatialAudio.h"
 #import "AdaptiveBitrate.h"
 #import "MicrophoneCapture.h"
 #import "CryptoManager.h"
@@ -233,15 +234,25 @@ static BOOL twilightHostLooksLocal(NSString *host) {
     return YES;
 }
 
+- (NSString *)statsFeatureLines {
+    NSString *spatial = TwilightSpatialCurrentStatusLine();
+    NSString *metal = [MetalFXFrameRenderer statsLine];
+    if (metal.length > 0) {
+        return [NSString stringWithFormat:@"%@\n%@", spatial, metal];
+    }
+    return spatial;
+}
+
 - (NSString*) getStatsOverlayText {
     video_stats_t stats;
-    
+    NSString *features = [self statsFeatureLines];
+
     if (!_connection) {
-        return nil;
+        return features;
     }
     
     if (![_connection getVideoStats:&stats]) {
-        return nil;
+        return features;
     }
     
     uint32_t rtt, variance;
@@ -265,6 +276,9 @@ static BOOL twilightHostLooksLocal(NSString *host) {
     }
     
     float interval = stats.endTime - stats.startTime;
+    if (interval <= 0) {
+        return features;
+    }
     // Requested is what this stream asked for. The estimated encoder target
     // is 80% of that request (the FEC budget). Measured is received video
     // bytes over this stats window.
@@ -279,7 +293,7 @@ static BOOL twilightHostLooksLocal(NSString *host) {
     if (adaptiveKbps > 0) {
         adaptive = [NSString stringWithFormat:@" %.1f Mbps adaptive", adaptiveKbps / 1000.0];
     }
-    NSString *text = [NSString stringWithFormat:@"Video stream: %dx%d %.2f FPS (Codec: %@)\n%.1f Mbps requested, %.1f Mbps estimated encoder target, %.1f Mbps measured%@\nFrames dropped by your network connection: %.2f%%\nAverage network latency: %@%@",
+    NSString *text = [NSString stringWithFormat:@"Video stream: %dx%d %.2f FPS (Codec: %@)\n%.1f Mbps requested, %.1f Mbps estimated encoder target, %.1f Mbps measured%@\nFrames dropped by your network connection: %.2f%%\nAverage network latency: %@%@\n%@",
             _config.width,
             _config.height,
             stats.totalFrames / interval,
@@ -290,11 +304,8 @@ static BOOL twilightHostLooksLocal(NSString *host) {
             adaptive,
             stats.networkDroppedFrames / interval,
             latencyString,
-            hostProcessingString];
-    NSString *metal = [MetalFXFrameRenderer statsLine];
-    if (metal.length > 0) {
-        return [text stringByAppendingFormat:@"\n%@", metal];
-    }
+            hostProcessingString,
+            features];
     return text;
 }
 
