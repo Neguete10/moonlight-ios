@@ -24,8 +24,17 @@ typedef NS_ENUM(NSInteger, MetalFXStatsMode) {
 + (NSInteger)scalePercentForChoiceIndex:(NSInteger)index;
 + (NSInteger)choiceIndexForScalePercent:(NSInteger)percent;
 
-/// Size to request from the host. Percent modes use the screen pixels
-/// (a landscape-only phone whose pixel size is still portrait is swapped).
+/// Which picture the percent modes shrink. Safe Area uses the safe-area
+/// pixels, Full uses the full-bleed pixels, and a fixed resolution uses
+/// that resolution so the stream keeps its aspect.
++ (CGSize)nativeBaseForChosenWidth:(NSInteger)chosenWidth
+                            height:(NSInteger)chosenHeight
+                        safePixels:(CGSize)safePixels
+                        fullPixels:(CGSize)fullPixels
+                     landscapeOnly:(BOOL)landscapeOnly;
+
+/// Size to request from the host. Percent modes shrink nativePixels
+/// (the safe-area size, the full-bleed size, or a fixed resolution).
 /// Disabled, or a percent of 0, keeps the chosen resolution.
 + (CGSize)hostSizeForNativePixels:(CGSize)nativePixels
                       chosenWidth:(NSInteger)chosenWidth
@@ -33,6 +42,10 @@ typedef NS_ENUM(NSInteger, MetalFXStatsMode) {
                      scalePercent:(NSInteger)scalePercent
                           enabled:(BOOL)enabled
                     landscapeOnly:(BOOL)landscapeOnly;
+
+/// The rect the Metal layer occupies. Same aspect-fit rect as the
+/// sample-buffer display layer.
++ (CGRect)layerRectForBounds:(CGRect)bounds streamAspectRatio:(CGFloat)aspectRatio;
 
 /// Aspect-fit rect in drawable pixels, origin at the top left.
 + (CGRect)outputRectForDrawablePixels:(CGSize)drawable

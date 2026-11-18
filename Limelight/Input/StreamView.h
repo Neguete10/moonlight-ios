@@ -27,6 +27,10 @@
 - (void) setupStreamView:(ControllerSupport*)controllerSupport
      interactionDelegate:(id<UserInteractionDelegate>)interactionDelegate
                   config:(StreamConfiguration*)streamConfig;
+
+/// Places a Metal layer so layout sizes it like the live upscale path.
+/// Used by the simulator UI test, which cannot create a MetalFX scaler.
+- (void) installMetalFXLayoutLayer;
 - (void) showOnScreenControls;
 - (OnScreenControlsLevel) getCurrentOscState;
 

@@ -57,6 +57,7 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
     UILabel *keyLogLabel;
     UIView *videoProbe;
     UIView *streamSurface;
+    UIView *metalProbe;
 }
 
 - (void) setupStreamView:(ControllerSupport*)controllerSupport
@@ -194,7 +195,9 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
             continue;
         }
         CAMetalLayer *metalLayer = (CAMetalLayer *)layer;
-        metalLayer.frame = self.bounds;
+        // Same rect as AVSampleBufferDisplayLayer. A full-bounds layer
+        // stretches a safe-area picture across the screen.
+        metalLayer.frame = videoRect;
         CGFloat scale = self.window.screen.scale;
         if (scale < 0.5f) {
             scale = UIScreen.mainScreen.scale;
@@ -203,8 +206,8 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
             scale = 1;
         }
         metalLayer.contentsScale = scale;
-        metalLayer.drawableSize = CGSizeMake(MAX(1, round(self.bounds.size.width * scale)),
-                                             MAX(1, round(self.bounds.size.height * scale)));
+        metalLayer.drawableSize = CGSizeMake(MAX(1, round(videoRect.size.width * scale)),
+                                             MAX(1, round(videoRect.size.height * scale)));
     }
     if ([TwilightInputLog isEnabled]) {
         if (streamSurface == nil) {
@@ -228,7 +231,41 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
         videoProbe.accessibilityLabel = [NSString stringWithFormat:@"video %.1f %.1f %.1f %.1f",
                                           videoRect.origin.x, videoRect.origin.y,
                                           videoRect.size.width, videoRect.size.height];
+        CAMetalLayer *metalLayer = nil;
+        for (CALayer *layer in self.layer.sublayers) {
+            if ([layer isKindOfClass:[CAMetalLayer class]]) {
+                metalLayer = (CAMetalLayer *)layer;
+                break;
+            }
+        }
+        if (metalLayer != nil) {
+            if (metalProbe == nil) {
+                metalProbe = [[UIView alloc] init];
+                metalProbe.accessibilityIdentifier = @"twilight.metalfx.layer";
+                metalProbe.isAccessibilityElement = YES;
+                metalProbe.userInteractionEnabled = NO;
+                metalProbe.backgroundColor = [UIColor clearColor];
+                [self addSubview:metalProbe];
+            }
+            metalProbe.hidden = NO;
+            metalProbe.frame = metalLayer.frame;
+        }
+        else if (metalProbe != nil) {
+            metalProbe.hidden = YES;
+        }
     }
+}
+
+- (void)installMetalFXLayoutLayer {
+    for (CALayer *layer in self.layer.sublayers) {
+        if ([layer isKindOfClass:[CAMetalLayer class]]) {
+            return;
+        }
+    }
+    CAMetalLayer *layer = [CAMetalLayer layer];
+    layer.frame = self.bounds;
+    [self.layer insertSublayer:layer atIndex:0];
+    [self setNeedsLayout];
 }
 
 - (void)layoutKeyboardField {

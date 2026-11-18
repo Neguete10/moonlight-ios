@@ -64,6 +64,33 @@
     return [self evenDown:scaled];
 }
 
++ (BOOL)size:(CGSize)size matches:(CGSize)other {
+    return fabs(size.width - other.width) <= 2.0 && fabs(size.height - other.height) <= 2.0;
+}
+
++ (CGSize)nativeBaseForChosenWidth:(NSInteger)chosenWidth
+                            height:(NSInteger)chosenHeight
+                        safePixels:(CGSize)safePixels
+                        fullPixels:(CGSize)fullPixels
+                     landscapeOnly:(BOOL)landscapeOnly {
+    CGSize chosen = [StreamVideoLayout streamSizeForWidth:chosenWidth
+                                                    height:chosenHeight
+                                             landscapeOnly:landscapeOnly];
+    CGSize safeSize = [StreamVideoLayout streamSizeForWidth:(NSInteger)llround(safePixels.width)
+                                                      height:(NSInteger)llround(safePixels.height)
+                                               landscapeOnly:landscapeOnly];
+    CGSize fullSize = [StreamVideoLayout streamSizeForWidth:(NSInteger)llround(fullPixels.width)
+                                                      height:(NSInteger)llround(fullPixels.height)
+                                               landscapeOnly:landscapeOnly];
+    if ([self size:chosen matches:safeSize]) {
+        return safeSize;
+    }
+    if ([self size:chosen matches:fullSize]) {
+        return fullSize;
+    }
+    return chosen;
+}
+
 + (CGSize)hostSizeForNativePixels:(CGSize)nativePixels
                       chosenWidth:(NSInteger)chosenWidth
                      chosenHeight:(NSInteger)chosenHeight
@@ -93,6 +120,10 @@
         height = [self evenDown:nativeH - 2];
     }
     return CGSizeMake(width, height);
+}
+
++ (CGRect)layerRectForBounds:(CGRect)bounds streamAspectRatio:(CGFloat)aspectRatio {
+    return [StreamVideoLayout videoRectForBounds:bounds streamAspectRatio:aspectRatio];
 }
 
 + (CGRect)outputRectForDrawablePixels:(CGSize)drawable streamAspectRatio:(CGFloat)aspectRatio {

@@ -154,6 +154,8 @@ typedef struct {
     BOOL _tornDown;
     BOOL _announcedFrame;
     NSInteger _skippedForLayout;
+    CGFloat _streamAspectRatio;
+    CGSize _viewPixels;
     int _publishedW;
     int _publishedH;
     int _publishedOutW;
@@ -240,12 +242,13 @@ static NSString *gStatsLine;
     return NO;
 }
 
-+ (nullable instancetype)rendererForView:(UIView *)view hdr:(BOOL)hdr {
++ (nullable instancetype)rendererForView:(UIView *)view hdr:(BOOL)hdr streamAspectRatio:(CGFloat)streamAspectRatio {
     if (view == nil || ![self deviceSupportsSpatialScaler]) {
         [self publishFallback];
         return nil;
     }
     MetalFXFrameRenderer *renderer = [[self alloc] init];
+    renderer->_streamAspectRatio = streamAspectRatio;
     if (![renderer prepareWithView:view hdr:hdr]) {
         [renderer invalidate];
         [self publishFallback];
@@ -380,10 +383,16 @@ static NSString *gStatsLine;
     if (scale < 0.5) {
         scale = 1;
     }
-    _layer.frame = _view.bounds;
+    CGRect videoRect = [MetalFXLayout layerRectForBounds:_view.bounds streamAspectRatio:_streamAspectRatio];
+    if (CGRectIsEmpty(videoRect)) {
+        videoRect = _view.bounds;
+    }
+    _layer.frame = videoRect;
     _layer.contentsScale = scale;
-    _layer.drawableSize = CGSizeMake(MAX(1, round(_view.bounds.size.width * scale)),
-                                     MAX(1, round(_view.bounds.size.height * scale)));
+    _layer.drawableSize = CGSizeMake(MAX(1, round(videoRect.size.width * scale)),
+                                     MAX(1, round(videoRect.size.height * scale)));
+    CGSize viewPixels = CGSizeMake(MAX(1, round(_view.bounds.size.width * scale)),
+                                   MAX(1, round(_view.bounds.size.height * scale)));
     CGSize points = UIScreen.mainScreen.bounds.size;
     CGSize pixels = CGSizeMake(points.width * UIScreen.mainScreen.scale, points.height * UIScreen.mainScreen.scale);
 #if TARGET_OS_TV
@@ -394,6 +403,7 @@ static NSString *gStatsLine;
     CGSize screen = [StreamVideoLayout interfaceSizeForSize:pixels landscapeOnly:phone];
     [_lock lock];
     _screenPixels = screen;
+    _viewPixels = viewPixels;
     [_lock unlock];
 }
 
@@ -524,13 +534,17 @@ static NSString *gStatsLine;
         return YES;
     }
     CGSize screen;
+    CGSize viewPixels;
     int matrix;
     [_lock lock];
     screen = _screenPixels;
+    viewPixels = _viewPixels;
     matrix = _matrix;
     [_lock unlock];
+    // The drawable is the video rect, which is smaller than the screen in
+    // Safe Area and fixed-resolution modes. Settle from the view, not the drawable.
     BOOL settled = screen.width < 2.0 || screen.height < 2.0 ||
-        (drawablePixels.width >= screen.width * 0.85 && drawablePixels.height >= screen.height * 0.85);
+        (viewPixels.width >= screen.width * 0.85 && viewPixels.height >= screen.height * 0.85);
     if (![MetalFXLayout canUpscaleInput:CGSizeMake(width, height) toOutput:output.size]) {
         if (!settled && _skippedForLayout < 45) {
             _skippedForLayout++;

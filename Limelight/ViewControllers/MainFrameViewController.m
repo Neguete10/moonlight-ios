@@ -32,6 +32,7 @@
 #import "MetalFXLayout.h"
 #import "MetalFXFrameRenderer.h"
 
+#include <math.h>
 #include <stdlib.h>
 
 #if !TARGET_OS_TV
@@ -708,10 +709,29 @@ static NSMutableSet* hostList;
     _streamConfig.enableHdr = streamSettings.enableHdr;
     _streamConfig.enableMetalFX = NO;
     if (streamSettings.metalFXEnabled && [MetalFXFrameRenderer deviceSupportsSpatialScaler]) {
-        UIScreen *screen = self.view.window.screen ?: [UIScreen mainScreen];
-        CGFloat screenScale = screen.scale > 0.5 ? screen.scale : 1;
-        CGSize nativePixels = CGSizeMake(screen.bounds.size.width * screenScale, screen.bounds.size.height * screenScale);
-        CGSize hostSize = [MetalFXLayout hostSizeForNativePixels:nativePixels
+        UIWindow *window = self.view.window;
+        CGRect interfaceBounds = window != nil ? window.bounds : UIScreen.mainScreen.bounds;
+        UIEdgeInsets safeInsets = window != nil ? window.safeAreaInsets : UIEdgeInsetsZero;
+        CGFloat screenScale = window != nil ? window.screen.scale : UIScreen.mainScreen.scale;
+        if (screenScale < 0.5) {
+            screenScale = UIScreen.mainScreen.scale;
+        }
+        CGSize safePixels = [StreamVideoLayout streamPixelsForSize:interfaceBounds.size
+                                                             insets:safeInsets
+                                                              scale:screenScale
+                                                      landscapeOnly:landscapeOnlyPhone
+                                                          fullBleed:NO];
+        CGSize fullPixels = [StreamVideoLayout streamPixelsForSize:interfaceBounds.size
+                                                             insets:safeInsets
+                                                              scale:screenScale
+                                                      landscapeOnly:landscapeOnlyPhone
+                                                          fullBleed:YES];
+        CGSize nativeBase = [MetalFXLayout nativeBaseForChosenWidth:_streamConfig.width
+                                                              height:_streamConfig.height
+                                                          safePixels:safePixels
+                                                          fullPixels:fullPixels
+                                                       landscapeOnly:landscapeOnlyPhone];
+        CGSize hostSize = [MetalFXLayout hostSizeForNativePixels:nativeBase
                                                      chosenWidth:_streamConfig.width
                                                     chosenHeight:_streamConfig.height
                                                     scalePercent:streamSettings.metalFXScale
@@ -2077,7 +2097,7 @@ static NSMutableSet* hostList;
     BOOL metalFXTest = NO;
 #if DEBUG && !TARGET_OS_TV
     const char *uiTestMode = getenv("TWILIGHT_UITEST");
-    metalFXTest = uiTestMode != NULL && strcmp(uiTestMode, "metalfx") == 0;
+    metalFXTest = uiTestMode != NULL && (strcmp(uiTestMode, "metalfx") == 0 || strcmp(uiTestMode, "metalfx-safe") == 0);
 #endif
     [self dismissViewControllerAnimated:YES completion:^{
         [self restoreShellBar];
@@ -2092,10 +2112,45 @@ static NSMutableSet* hostList;
     StreamConfiguration *config = [[StreamConfiguration alloc] init];
     config.appName = @"Desktop";
     config.host = @"192.0.2.10";
-    config.width = 1920;
-    config.height = 1080;
     config.frameRate = 60;
     config.bitRate = 20000;
+    const char *uiTestMode = getenv("TWILIGHT_UITEST");
+    BOOL safeArea = uiTestMode != NULL && strcmp(uiTestMode, "metalfx-safe") == 0;
+    if (safeArea) {
+        UIWindow *window = self.view.window;
+        CGRect interfaceBounds = window != nil ? window.bounds : UIScreen.mainScreen.bounds;
+        UIEdgeInsets safeInsets = window != nil ? window.safeAreaInsets : UIEdgeInsetsZero;
+        CGFloat screenScale = window != nil ? window.screen.scale : UIScreen.mainScreen.scale;
+        BOOL landscapeOnly = UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone;
+        CGSize safePixels = [StreamVideoLayout streamPixelsForSize:interfaceBounds.size
+                                                             insets:safeInsets
+                                                              scale:screenScale
+                                                      landscapeOnly:landscapeOnly
+                                                          fullBleed:NO];
+        TemporarySettings *settings = [[[DataManager alloc] init] getSettings];
+        CGSize fullPixels = [StreamVideoLayout streamPixelsForSize:interfaceBounds.size
+                                                             insets:safeInsets
+                                                              scale:screenScale
+                                                      landscapeOnly:landscapeOnly
+                                                          fullBleed:YES];
+        CGSize base = [MetalFXLayout nativeBaseForChosenWidth:(NSInteger)llround(safePixels.width)
+                                                        height:(NSInteger)llround(safePixels.height)
+                                                    safePixels:safePixels
+                                                    fullPixels:fullPixels
+                                                 landscapeOnly:landscapeOnly];
+        CGSize host = [MetalFXLayout hostSizeForNativePixels:base
+                                                 chosenWidth:(NSInteger)llround(safePixels.width)
+                                                chosenHeight:(NSInteger)llround(safePixels.height)
+                                                scalePercent:settings.metalFXScale
+                                                     enabled:settings.metalFXEnabled
+                                               landscapeOnly:landscapeOnly];
+        config.width = (int)MAX(2, host.width);
+        config.height = (int)MAX(2, host.height);
+    }
+    else {
+        config.width = 1920;
+        config.height = 1080;
+    }
     _streamConfig = config;
     [self performSegueWithIdentifier:@"createStreamFrame" sender:nil];
 }
@@ -2625,7 +2680,7 @@ static NSMutableSet* hostList;
             });
         }
     }
-    else if ([which isEqualToString:@"metalfx"]) {
+    else if ([which isEqualToString:@"metalfx"] || [which isEqualToString:@"metalfx-safe"]) {
         [self installScreenshotLibrary];
         dispatch_async(dispatch_get_main_queue(), ^{
             [self showSettingsSheet];

@@ -344,4 +344,54 @@
     [self saveShot:@"metalfx-fallback"];
 }
 
+- (void)assertElement:(XCUIElement *)element matches:(XCUIElement *)other named:(NSString *)name {
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:4];
+    CGRect elementFrame = CGRectZero;
+    CGRect otherFrame = CGRectZero;
+    BOOL matched = NO;
+    while ([deadline timeIntervalSinceNow] > 0) {
+        elementFrame = element.frame;
+        otherFrame = other.frame;
+        BOOL sized = elementFrame.size.width > 20 && elementFrame.size.height > 20;
+        BOOL equal = fabs(elementFrame.origin.x - otherFrame.origin.x) < 2
+            && fabs(elementFrame.origin.y - otherFrame.origin.y) < 2
+            && fabs(elementFrame.size.width - otherFrame.size.width) < 2
+            && fabs(elementFrame.size.height - otherFrame.size.height) < 2;
+        if (sized && equal) {
+            matched = YES;
+            break;
+        }
+        [self spinFor:0.2];
+    }
+    XCTAssertTrue(matched, @"%@ frame %@ != %@", name, NSStringFromCGRect(elementFrame), NSStringFromCGRect(otherFrame));
+    CGRect window = [self windowFrame];
+    if (otherFrame.size.width < window.size.width - 8) {
+        XCTAssertLessThan(elementFrame.size.width, window.size.width - 8, @"%@ filled the screen", name);
+    }
+}
+
+- (void)testMetalFXSafeAreaLayerMatchesVideoFrame {
+    XCUIApplication *app = [self launchMode:@"metalfx-safe"];
+    [self scrollSettingsUntilHittable:@"Safe Area"];
+    [self tapIdentifier:@"Safe Area"];
+    [self scrollSettingsUntilHittable:@"twilight.metalfx.1"];
+    [self tapIdentifier:@"twilight.metalfx.1"];
+    XCUIElement *done = app.navigationBars[@"Settings"].buttons[@"Done"];
+    if (!done.exists) {
+        done = app.buttons[@"Done"];
+    }
+    XCTAssertTrue([done waitForExistenceWithTimeout:2], @"Settings Done button is missing");
+    [done tap];
+
+    [[XCUIDevice sharedDevice] setOrientation:UIDeviceOrientationLandscapeLeft];
+    XCUIElement *video = [self waitForIdentifier:@"twilight.video" timeout:4];
+    XCUIElement *metal = [self waitForIdentifier:@"twilight.metalfx.layer" timeout:4];
+    [self assertElement:metal matches:video named:@"MetalFX layer"];
+    XCUIElement *status = [self waitForIdentifier:@"twilight.metalfx.status" timeout:4];
+    NSString *line = status.label.length > 0 ? status.label : [status.value description];
+    XCTAssertTrue([line containsString:@"fallback"] || [line containsString:@"active"] || [line containsString:@"starting"],
+                  @"MetalFX status: %@", line);
+    [self saveShot:@"metalfx-safe-area"];
+}
+
 @end

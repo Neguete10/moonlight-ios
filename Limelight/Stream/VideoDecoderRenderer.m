@@ -138,7 +138,7 @@ static void MetalFXDecompressionCallback(void *decompressionOutputRefCon,
         return self;
     }
 
-    _metalRenderer = [MetalFXFrameRenderer rendererForView:_view hdr:hdr];
+    _metalRenderer = [MetalFXFrameRenderer rendererForView:_view hdr:hdr streamAspectRatio:_streamAspectRatio];
     if (_metalRenderer == nil) {
         [self reinitializeDisplayLayer];
         return self;

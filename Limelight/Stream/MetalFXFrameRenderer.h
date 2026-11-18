@@ -21,7 +21,8 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)publishActiveInput:(CGSize)input output:(CGSize)output;
 
 /// nil when the device, the shader, or an HDR target cannot be set up.
-+ (nullable instancetype)rendererForView:(UIView *)view hdr:(BOOL)hdr;
+/// streamAspectRatio is width / height, the same ratio the display layer uses.
++ (nullable instancetype)rendererForView:(UIView *)view hdr:(BOOL)hdr streamAspectRatio:(CGFloat)streamAspectRatio;
 
 /// The drawable is a linear extended-range target and 10-bit input is preferred.
 @property (nonatomic, readonly) BOOL expects10Bit;

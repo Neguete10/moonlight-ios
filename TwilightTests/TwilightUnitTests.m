@@ -7,6 +7,7 @@
 //
 
 #import <UIKit/UIKit.h>
+#import <math.h>
 #import <sys/types.h>
 #import <XCTest/XCTest.h>
 #import "StreamVideoLayout.h"
@@ -304,6 +305,92 @@
     XCTAssertFalse([MetalFXLayout canUpscaleInput:CGSizeMake(3840, 2160) toOutput:CGSizeMake(2144, 1206)]);
     XCTAssertFalse([MetalFXLayout canUpscaleInput:CGSizeMake(2144, 1206) toOutput:CGSizeMake(2144, 1206)]);
     XCTAssertFalse([MetalFXLayout canUpscaleInput:CGSizeMake(0, 0) toOutput:CGSizeMake(100, 100)]);
+}
+
+- (void)testMetalFXSafeAreaFractionAndLayerMatchTheDisplayRect {
+    // iPhone 17 Pro points, still reported portrait, with the island and home insets.
+    CGSize portrait = CGSizeMake(402, 874);
+    UIEdgeInsets insets = UIEdgeInsetsMake(62, 0, 34, 0);
+    CGSize safe = [StreamVideoLayout streamPixelsForSize:portrait
+                                                   insets:insets
+                                                    scale:3
+                                            landscapeOnly:YES
+                                                fullBleed:NO];
+    CGSize full = [StreamVideoLayout streamPixelsForSize:portrait
+                                                   insets:insets
+                                                    scale:3
+                                            landscapeOnly:YES
+                                                fullBleed:YES];
+    XCTAssertEqualWithAccuracy(safe.width, 2334, 0.5);
+    XCTAssertEqualWithAccuracy(safe.height, 1206, 0.5);
+    XCTAssertEqualWithAccuracy(full.width, 2622, 0.5);
+    XCTAssertGreaterThan(full.width, safe.width);
+
+    CGSize safeBase = [MetalFXLayout nativeBaseForChosenWidth:(NSInteger)llround(safe.width)
+                                                        height:(NSInteger)llround(safe.height)
+                                                    safePixels:safe
+                                                    fullPixels:full
+                                                 landscapeOnly:YES];
+    XCTAssertEqualWithAccuracy(safeBase.width, safe.width, 0.5);
+    XCTAssertEqualWithAccuracy(safeBase.height, safe.height, 0.5);
+
+    CGSize halfSafe = [MetalFXLayout hostSizeForNativePixels:safeBase
+                                                 chosenWidth:(NSInteger)llround(safe.width)
+                                                chosenHeight:(NSInteger)llround(safe.height)
+                                                scalePercent:50
+                                                     enabled:YES
+                                               landscapeOnly:YES];
+    XCTAssertEqual(halfSafe.width, 1166);
+    XCTAssertEqual(halfSafe.height, 602);
+    CGSize halfFull = [MetalFXLayout hostSizeForNativePixels:full
+                                                 chosenWidth:(NSInteger)llround(full.width)
+                                                chosenHeight:(NSInteger)llround(full.height)
+                                                scalePercent:50
+                                                     enabled:YES
+                                               landscapeOnly:YES];
+    XCTAssertEqual(halfFull.width, 1310);
+    XCTAssertLessThan(halfSafe.width, halfFull.width);
+
+    CGSize fixedBase = [MetalFXLayout nativeBaseForChosenWidth:1920
+                                                         height:1080
+                                                     safePixels:safe
+                                                     fullPixels:full
+                                                  landscapeOnly:YES];
+    XCTAssertEqual(fixedBase.width, 1920);
+    XCTAssertEqual(fixedBase.height, 1080);
+    CGSize halfFixed = [MetalFXLayout hostSizeForNativePixels:fixedBase
+                                                  chosenWidth:1920
+                                                 chosenHeight:1080
+                                                 scalePercent:50
+                                                      enabled:YES
+                                                landscapeOnly:YES];
+    XCTAssertEqual(halfFixed.width, 960);
+    XCTAssertEqual(halfFixed.height, 540);
+
+    CGRect bounds = CGRectMake(0, 0, 874, 402);
+    CGFloat safeAspect = safe.width / safe.height;
+    CGRect safeLayer = [MetalFXLayout layerRectForBounds:bounds streamAspectRatio:safeAspect];
+    CGRect safeVideo = [StreamVideoLayout videoRectForBounds:bounds streamAspectRatio:safeAspect];
+    XCTAssertEqualWithAccuracy(safeLayer.origin.x, safeVideo.origin.x, 0.5);
+    XCTAssertEqualWithAccuracy(safeLayer.origin.y, safeVideo.origin.y, 0.5);
+    XCTAssertEqualWithAccuracy(safeLayer.size.width, safeVideo.size.width, 0.5);
+    XCTAssertEqualWithAccuracy(safeLayer.size.height, safeVideo.size.height, 0.5);
+    XCTAssertLessThan(safeLayer.size.width, bounds.size.width - 1);
+    XCTAssertEqualWithAccuracy(safeLayer.size.height, bounds.size.height, 0.5);
+
+    CGRect fullLayer = [MetalFXLayout layerRectForBounds:bounds streamAspectRatio:(full.width / full.height)];
+    CGRect fullVideo = [StreamVideoLayout videoRectForBounds:bounds streamAspectRatio:(full.width / full.height)];
+    XCTAssertEqualWithAccuracy(fullLayer.size.width, fullVideo.size.width, 0.5);
+    XCTAssertEqualWithAccuracy(fullLayer.size.width, bounds.size.width, 1);
+    XCTAssertEqualWithAccuracy(fullLayer.size.height, bounds.size.height, 1);
+
+    CGRect fixedLayer = [MetalFXLayout layerRectForBounds:bounds streamAspectRatio:(16.0 / 9.0)];
+    CGRect fixedVideo = [StreamVideoLayout videoRectForBounds:bounds streamAspectRatio:(16.0 / 9.0)];
+    XCTAssertEqualWithAccuracy(fixedLayer.origin.x, fixedVideo.origin.x, 0.5);
+    XCTAssertEqualWithAccuracy(fixedLayer.size.width, fixedVideo.size.width, 0.5);
+    XCTAssertEqualWithAccuracy(fixedLayer.size.height, fixedVideo.size.height, 0.5);
+    XCTAssertLessThan(fixedLayer.size.width, bounds.size.width - 1);
+    XCTAssertLessThan(fixedLayer.size.width, safeLayer.size.width);
 }
 
 - (void)testMetalFXStatsLineNamesTheResolutions {

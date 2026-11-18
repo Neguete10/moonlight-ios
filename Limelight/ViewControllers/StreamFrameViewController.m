@@ -153,7 +153,7 @@
         return NO;
     }
     NSString *which = [NSString stringWithUTF8String:mode];
-    return [which isEqualToString:@"stream"] || [which isEqualToString:@"keyboard"] || [which isEqualToString:@"metalfx"];
+    return [which isEqualToString:@"stream"] || [which isEqualToString:@"keyboard"] || [which isEqualToString:@"metalfx"] || [which isEqualToString:@"metalfx-safe"];
 #else
     return NO;
 #endif
@@ -193,7 +193,7 @@
 - (BOOL)uiTestMetalFXFixture {
 #if DEBUG && !TARGET_OS_TV
     const char *mode = getenv("TWILIGHT_UITEST");
-    return mode != NULL && strcmp(mode, "metalfx") == 0;
+    return mode != NULL && (strcmp(mode, "metalfx") == 0 || strcmp(mode, "metalfx-safe") == 0);
 #else
     return NO;
 #endif
@@ -214,6 +214,9 @@
     }
     else {
         [MetalFXFrameRenderer publishOff];
+    }
+    if (_settings.metalFXEnabled) {
+        [_streamView installMetalFXLayoutLayer];
     }
     UILabel *status = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 8, 8)];
     status.accessibilityIdentifier = @"twilight.metalfx.status";
