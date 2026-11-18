@@ -76,7 +76,7 @@ In the iOS app's availability, turn on **Apple Vision Pro** and choose **Designe
 ## Install a development build on an iPhone
 
 1. Enroll the Apple ID in the Apple Developer Program. A free personal team can install a debug build for a few days. TestFlight and the store need a paid membership.
-2. Install Xcode. Clone with submodules: `git clone --recursive https://github.com/Neguete10/moonlight-ios.git`
+2. Install Xcode. Clone with submodules: `git clone --recursive https://github.com/Neguete10/twilight-ios.git`
 3. Open `Moonlight.xcodeproj`. Select the **Moonlight** target, then Signing & Capabilities. Set **Team** to the Apple Developer team. Leave **Automatically manage signing** on. The bundle id is `io.github.neguete10.twilight.ios`. Do not type `DM46QST4M7`.
 4. Connect the iPhone, trust the computer, and select that iPhone as the run destination. The scheme is **Moonlight**. Product → Run.
 5. On the iPhone, if iOS blocks the app, open Settings → General → VPN & Device Management and trust the developer certificate.
@@ -101,4 +101,4 @@ Apple TV is the same sequence with the **Moonlight TV** scheme and an Apple TV d
 
 - Choose the signing team and install a build on a device.
 - Create the App Store Connect record, screenshots, age rating, and the privacy questionnaire using the answers above. The app has no account and no store of its own. The age rating follows whatever the user's computer sends.
-- Device-check microphone passthrough, a DualSense, a real stream, and a launch on iOS 27. GitHub Actions builds the iOS simulator and the tvOS simulator, checks the visionOS destination, and launches the iOS app on an iOS 27 simulator when that runtime is installed on the runner. A runner without the iOS 27 runtime skips that launch and does not fail the build.
+- Device-check microphone passthrough, a DualSense, a real stream, and a launch on iOS 27. GitHub Actions builds the iOS simulator, runs the simulator tests, checks the visionOS destination, and launches the iOS app on an iOS 27 simulator when that runtime is installed on the runner. A runner without the iOS 27 runtime skips that launch and does not fail the build. The Apple TV scheme is not built in CI.
