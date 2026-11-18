@@ -282,10 +282,23 @@
         letter = app.keys[@"Q"];
     }
     XCTAssertTrue(letter.exists, @"System keyboard is missing the Q key");
-    // Type into the focused stream field. The one-point field is not a
-    // hittable target, and a later Win/Alt hold would change the character.
-    [app typeText:@"q"];
-    XCTAssertTrue([self logContains:@"down 81" within:8], @"key log missing \"down 81\": %@", [self keyLog].label);
+    // The simulator's hardware keyboard is disabled, so typeText never reaches
+    // the stream field. Press the on-screen Q key before any modifier is held.
+    if (letter.isHittable) {
+        [letter tap];
+    }
+    else {
+        [[letter coordinateWithNormalizedOffset:CGVectorMake(0.5, 0.5)] tap];
+    }
+    if (![self logContains:@"down 81" within:4]) {
+        if (letter.isHittable) {
+            [letter tap];
+        }
+        else {
+            [[letter coordinateWithNormalizedOffset:CGVectorMake(0.5, 0.5)] tap];
+        }
+    }
+    XCTAssertTrue([self logContains:@"down 81" within:4], @"key log missing \"down 81\": %@", [self keyLog].label);
 
     [self tapIdentifier:@"twilight.key.esc" expecting:@"down 27"];
     [self waitForLogContaining:@"up 27"];
