@@ -183,6 +183,7 @@ static NSString *MetalFXCommandStatusName(MTLCommandBufferStatus status) {
 @implementation MetalFXFrameRenderer {
     UIView *_view;
     CAMetalLayer *_layer;
+    CADisplayLink *_paceLink;
     id<MTLDevice> _device;
     id<MTLCommandQueue> _queue;
     id<MTLCommandQueue> _presentQueue;
@@ -408,6 +409,7 @@ static NSString *gStatsLine;
     _layer.maximumDrawableCount = 3;
     _layer.presentsWithTransaction = NO;
     [self lockLayerToScreenRate];
+    [self startPaceLink];
 #if !TARGET_OS_TV
     if (@available(iOS 18.0, *)) {
         _layer.allowsNextDrawableTimeout = YES;
@@ -474,29 +476,52 @@ static NSString *gStatsLine;
     [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
 }
 
+- (void)paceLinkFired:(CADisplayLink *)link {
+    // Nothing to draw here. A link requesting 80–120 Hz is what keeps
+    // ProMotion from clocking the panel down while Metal frames are presented.
+    (void)link;
+}
+
+- (void)startPaceLink {
+    void (^start)(void) = ^{
+        if (self->_paceLink != nil || self->_invalid || self->_tornDown) {
+            return;
+        }
+        CADisplayLink *link = [CADisplayLink displayLinkWithTarget:self selector:@selector(paceLinkFired:)];
+        if (@available(iOS 15.0, tvOS 15.0, *)) {
+            link.preferredFrameRateRange = CAFrameRateRangeMake(80, 120, 120);
+        }
+        [link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+        self->_paceLink = link;
+    };
+    if ([NSThread isMainThread]) {
+        start();
+    }
+    else {
+        dispatch_async(dispatch_get_main_queue(), start);
+    }
+}
+
+- (void)stopPaceLink {
+    void (^stop)(void) = ^{
+        [self->_paceLink invalidate];
+        self->_paceLink = nil;
+    };
+    if ([NSThread isMainThread]) {
+        stop();
+    }
+    else {
+        dispatch_sync(dispatch_get_main_queue(), stop);
+    }
+}
+
 - (void)lockLayerToScreenRate {
     if (_layer == nil) {
         return;
     }
-    // ProMotion otherwise treats the layer as idle UI and drops to about
-    // 10–24 Hz. A present then waits tens of milliseconds for the next tick.
-    float maxRate = 60.0f;
-    UIScreen *screen = _view.window.screen;
-    if (screen == nil) {
-        screen = UIScreen.mainScreen;
-    }
-    if (@available(iOS 10.3, tvOS 10.3, *)) {
-        if (screen.maximumFramesPerSecond >= 60) {
-            maxRate = (float)screen.maximumFramesPerSecond;
-        }
-    }
-    if (@available(iOS 15.0, tvOS 15.0, *)) {
-        CAFrameRateRange range = CAFrameRateRangeMake(maxRate, maxRate, maxRate);
-        _layer.preferredFrameRateRange = range;
-        _view.layer.preferredFrameRateRange = range;
-    }
-    // Stay on the display clock now that the clock is the panel's maximum.
-    // Turning sync off presents early and can tear or stall drawable reuse.
+    // Stay on the display clock. Turning sync off presents early and can
+    // tear or stall drawable reuse. The display link above holds that clock
+    // at 120 Hz; CAMetalLayer has no frame-rate property of its own.
     SEL displaySync = NSSelectorFromString(@"setDisplaySyncEnabled:");
     if ([_layer respondsToSelector:displaySync]) {
         ((void (*)(id, SEL, BOOL))objc_msgSend)(_layer, displaySync, YES);
@@ -1222,6 +1247,7 @@ static NSString *gStatsLine;
     }
     _tornDown = YES;
     _invalid = YES;
+    [self stopPaceLink];
     if (_pendingLock != nil) {
         [_pendingLock lock];
         CVPixelBufferRef pending = _pendingBuffer;
