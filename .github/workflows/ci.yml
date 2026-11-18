@@ -47,6 +47,11 @@ jobs:
       - name: Build Release
         run: xcodebuild -project Moonlight.xcodeproj -scheme "Moonlight" -configuration Release -sdk iphonesimulator clean build
 
+      # The simulator SDK has no MetalFX. This is the build that compiles
+      # Limelight/Stream/MetalFXFrameRenderer.m against the device headers.
+      - name: Build Debug (iOS device)
+        run: xcodebuild -project Moonlight.xcodeproj -scheme "Moonlight" -configuration Debug -destination "generic/platform=iOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
   build-tvos:
     name: Build (tvOS)
     # Start this job only after iOS finishes. A matrix leg queued at the

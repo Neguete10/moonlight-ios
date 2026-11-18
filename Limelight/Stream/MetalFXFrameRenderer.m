@@ -13,90 +13,97 @@
 #import "StreamVideoLayout.h"
 
 #import <Metal/Metal.h>
+// The simulator SDK does not ship MetalFX.framework. Device SDKs do.
+// The stream always falls back to AVSampleBufferDisplayLayer when this is 0.
+#if !TARGET_OS_SIMULATOR && __has_include(<MetalFX/MetalFX.h>)
+#define TWILIGHT_HAS_METALFX 1
 #import <MetalFX/MetalFX.h>
+#else
+#define TWILIGHT_HAS_METALFX 0
+#endif
 #import <QuartzCore/CAMetalLayer.h>
 
 static void *MetalFXBoundsContext = &MetalFXBoundsContext;
 
 static NSString *MetalFXShaderSource(void) {
     return
-    "#include <metal_stdlib>\n"
-    "using namespace metal;\n"
-    "struct VertexOut {\n"
-    "    float4 position [[position]];\n"
-    "    float2 uv;\n"
-    "};\n"
-    "struct Params {\n"
-    "    int matrix;\n"
-    "    int fullRange;\n"
-    "    int tenBit;\n"
-    "    int transfer;\n"
-    "};\n"
-    "vertex VertexOut fullscreenVertex(uint vid [[vertex_id]]) {\n"
-    "    float2 pos[3] = { float2(-1.0, -1.0), float2(3.0, -1.0), float2(-1.0, 3.0) };\n"
-    "    float2 uvs[3] = { float2(0.0, 1.0), float2(2.0, 1.0), float2(0.0, -1.0) };\n"
-    "    VertexOut out;\n"
-    "    out.position = float4(pos[vid], 0.0, 1.0);\n"
-    "    out.uv = uvs[vid];\n"
-    "    return out;\n"
-    "}\n"
-    "float pqToNitsRatio(float n) {\n"
-    "    float m1 = 0.1593017578125;\n"
-    "    float m2 = 78.84375;\n"
-    "    float c1 = 0.8359375;\n"
-    "    float c2 = 18.8515625;\n"
-    "    float c3 = 18.6875;\n"
-    "    float p = pow(clamp(n, 0.0, 1.0), 1.0 / m2);\n"
-    "    float num = max(p - c1, 0.0);\n"
-    "    float den = max(c2 - c3 * p, 1e-5);\n"
-    "    return pow(num / den, 1.0 / m1) * 100.0;\n"
-    "}\n"
-    "float gammaToLinear(float c) {\n"
-    "    c = clamp(c, 0.0, 1.0);\n"
-    "    if (c <= 0.04045) { return c / 12.92; }\n"
-    "    return pow((c + 0.055) / 1.055, 2.4);\n"
-    "}\n"
-    "fragment float4 yuvToRgb(VertexOut in [[stage_in]],\n"
-    "                         texture2d<float> yTex [[texture(0)]],\n"
-    "                         texture2d<float> uvTex [[texture(1)]],\n"
-    "                         constant Params &params [[buffer(0)]]) {\n"
-    "    constexpr sampler s(address::clamp_to_edge, filter::linear);\n"
-    "    float y = yTex.sample(s, in.uv).r;\n"
-    "    float2 uv = uvTex.sample(s, in.uv).rg;\n"
-    "    float yBlack = params.tenBit != 0 ? (64.0 / 1023.0) : (16.0 / 255.0);\n"
-    "    float ySpan = params.tenBit != 0 ? (876.0 / 1023.0) : (219.0 / 255.0);\n"
-    "    float cCenter = params.tenBit != 0 ? (512.0 / 1023.0) : (128.0 / 255.0);\n"
-    "    float cSpan = params.tenBit != 0 ? (896.0 / 1023.0) : (224.0 / 255.0);\n"
-    "    float u;\n"
-    "    float v;\n"
-    "    if (params.fullRange != 0) {\n"
-    "        u = uv.x - cCenter;\n"
-    "        v = uv.y - cCenter;\n"
-    "    } else {\n"
-    "        y = (y - yBlack) / ySpan;\n"
-    "        u = (uv.x - cCenter) / cSpan;\n"
-    "        v = (uv.y - cCenter) / cSpan;\n"
-    "    }\n"
-    "    float3x3 m = float3x3(float3(1.0, 1.0, 1.0), float3(0.0, -0.1873, 1.8556), float3(1.5748, -0.4681, 0.0));\n"
-    "    if (params.matrix == 1) {\n"
-    "        m = float3x3(float3(1.0, 1.0, 1.0), float3(0.0, -0.344136, 1.772), float3(1.402, -0.714136, 0.0));\n"
-    "    } else if (params.matrix == 2) {\n"
-    "        m = float3x3(float3(1.0, 1.0, 1.0), float3(0.0, -0.164553, 1.8814), float3(1.4746, -0.571353, 0.0));\n"
-    "    }\n"
-    "    float3 rgb = m * float3(y, u, v);\n"
-    "    if (params.transfer == 1) {\n"
-    "        rgb = float3(pqToNitsRatio(rgb.r), pqToNitsRatio(rgb.g), pqToNitsRatio(rgb.b));\n"
-    "    } else if (params.transfer == 2) {\n"
-    "        rgb = float3(gammaToLinear(rgb.r), gammaToLinear(rgb.g), gammaToLinear(rgb.b));\n"
-    "    } else {\n"
-    "        rgb = clamp(rgb, 0.0, 1.0);\n"
-    "    }\n"
-    "    return float4(max(rgb, 0.0), 1.0);\n"
-    "}\n"
-    "fragment float4 copyColor(VertexOut in [[stage_in]], texture2d<float> tex [[texture(0)]]) {\n"
-    "    constexpr sampler s(address::clamp_to_edge, filter::nearest);\n"
-    "    return tex.sample(s, in.uv);\n"
-    "}\n";
+    @"#include <metal_stdlib>\n"
+    @"using namespace metal;\n"
+    @"struct VertexOut {\n"
+    @"    float4 position [[position]];\n"
+    @"    float2 uv;\n"
+    @"};\n"
+    @"struct Params {\n"
+    @"    int matrix;\n"
+    @"    int fullRange;\n"
+    @"    int tenBit;\n"
+    @"    int transfer;\n"
+    @"};\n"
+    @"vertex VertexOut fullscreenVertex(uint vid [[vertex_id]]) {\n"
+    @"    float2 pos[3] = { float2(-1.0, -1.0), float2(3.0, -1.0), float2(-1.0, 3.0) };\n"
+    @"    float2 uvs[3] = { float2(0.0, 1.0), float2(2.0, 1.0), float2(0.0, -1.0) };\n"
+    @"    VertexOut out;\n"
+    @"    out.position = float4(pos[vid], 0.0, 1.0);\n"
+    @"    out.uv = uvs[vid];\n"
+    @"    return out;\n"
+    @"}\n"
+    @"float pqToNitsRatio(float n) {\n"
+    @"    float m1 = 0.1593017578125;\n"
+    @"    float m2 = 78.84375;\n"
+    @"    float c1 = 0.8359375;\n"
+    @"    float c2 = 18.8515625;\n"
+    @"    float c3 = 18.6875;\n"
+    @"    float p = pow(clamp(n, 0.0, 1.0), 1.0 / m2);\n"
+    @"    float num = max(p - c1, 0.0);\n"
+    @"    float den = max(c2 - c3 * p, 1e-5);\n"
+    @"    return pow(num / den, 1.0 / m1) * 100.0;\n"
+    @"}\n"
+    @"float gammaToLinear(float c) {\n"
+    @"    c = clamp(c, 0.0, 1.0);\n"
+    @"    if (c <= 0.04045) { return c / 12.92; }\n"
+    @"    return pow((c + 0.055) / 1.055, 2.4);\n"
+    @"}\n"
+    @"fragment float4 yuvToRgb(VertexOut in [[stage_in]],\n"
+    @"                         texture2d<float> yTex [[texture(0)]],\n"
+    @"                         texture2d<float> uvTex [[texture(1)]],\n"
+    @"                         constant Params &params [[buffer(0)]]) {\n"
+    @"    constexpr sampler s(address::clamp_to_edge, filter::linear);\n"
+    @"    float y = yTex.sample(s, in.uv).r;\n"
+    @"    float2 uv = uvTex.sample(s, in.uv).rg;\n"
+    @"    float yBlack = params.tenBit != 0 ? (64.0 / 1023.0) : (16.0 / 255.0);\n"
+    @"    float ySpan = params.tenBit != 0 ? (876.0 / 1023.0) : (219.0 / 255.0);\n"
+    @"    float cCenter = params.tenBit != 0 ? (512.0 / 1023.0) : (128.0 / 255.0);\n"
+    @"    float cSpan = params.tenBit != 0 ? (896.0 / 1023.0) : (224.0 / 255.0);\n"
+    @"    float u;\n"
+    @"    float v;\n"
+    @"    if (params.fullRange != 0) {\n"
+    @"        u = uv.x - cCenter;\n"
+    @"        v = uv.y - cCenter;\n"
+    @"    } else {\n"
+    @"        y = (y - yBlack) / ySpan;\n"
+    @"        u = (uv.x - cCenter) / cSpan;\n"
+    @"        v = (uv.y - cCenter) / cSpan;\n"
+    @"    }\n"
+    @"    float3x3 m = float3x3(float3(1.0, 1.0, 1.0), float3(0.0, -0.1873, 1.8556), float3(1.5748, -0.4681, 0.0));\n"
+    @"    if (params.matrix == 1) {\n"
+    @"        m = float3x3(float3(1.0, 1.0, 1.0), float3(0.0, -0.344136, 1.772), float3(1.402, -0.714136, 0.0));\n"
+    @"    } else if (params.matrix == 2) {\n"
+    @"        m = float3x3(float3(1.0, 1.0, 1.0), float3(0.0, -0.164553, 1.8814), float3(1.4746, -0.571353, 0.0));\n"
+    @"    }\n"
+    @"    float3 rgb = m * float3(y, u, v);\n"
+    @"    if (params.transfer == 1) {\n"
+    @"        rgb = float3(pqToNitsRatio(rgb.r), pqToNitsRatio(rgb.g), pqToNitsRatio(rgb.b));\n"
+    @"    } else if (params.transfer == 2) {\n"
+    @"        rgb = float3(gammaToLinear(rgb.r), gammaToLinear(rgb.g), gammaToLinear(rgb.b));\n"
+    @"    } else {\n"
+    @"        rgb = clamp(rgb, 0.0, 1.0);\n"
+    @"    }\n"
+    @"    return float4(max(rgb, 0.0), 1.0);\n"
+    @"}\n"
+    @"fragment float4 copyColor(VertexOut in [[stage_in]], texture2d<float> tex [[texture(0)]]) {\n"
+    @"    constexpr sampler s(address::clamp_to_edge, filter::nearest);\n"
+    @"    return tex.sample(s, in.uv);\n"
+    @"}\n";
 }
 
 typedef struct {
@@ -200,6 +207,7 @@ static NSString *gStatsLine;
 }
 
 + (BOOL)deviceSupportsSpatialScaler {
+#if TWILIGHT_HAS_METALFX
     if (@available(iOS 16.0, tvOS 16.0, *)) {
         // Weak-linked. A missing framework must not be messaged.
         if (NSClassFromString(@"MTLFXSpatialScalerDescriptor") == Nil) {
@@ -211,10 +219,12 @@ static NSString *gStatsLine;
         }
         return [MTLFXSpatialScalerDescriptor supportsDevice:device];
     }
+#endif
     return NO;
 }
 
 + (BOOL)hdrScalerAvailableOnDevice:(id<MTLDevice>)device {
+#if TWILIGHT_HAS_METALFX
     if (@available(iOS 17.0, tvOS 17.0, *)) {
         if (device == nil || ![MTLFXSpatialScalerDescriptor supportsDevice:device]) {
             return NO;
@@ -224,6 +234,9 @@ static NSString *gStatsLine;
         }
         return YES;
     }
+#else
+    (void)device;
+#endif
     return NO;
 }
 
@@ -401,6 +414,12 @@ static NSString *gStatsLine;
 }
 
 - (BOOL)rebuildScalerInputWidth:(NSUInteger)inW height:(NSUInteger)inH output:(CGSize)output {
+#if !TWILIGHT_HAS_METALFX
+    (void)inW;
+    (void)inH;
+    (void)output;
+    return NO;
+#else
     NSUInteger outW = (NSUInteger)llround(output.width);
     NSUInteger outH = (NSUInteger)llround(output.height);
     if (_scaler != nil && _scalerInW == inW && _scalerInH == inH && _scalerOutW == outW && _scalerOutH == outH && _scaledTexture != nil && _rgbTexture != nil) {
@@ -452,6 +471,7 @@ static NSString *gStatsLine;
         return YES;
     }
     return NO;
+#endif
 }
 
 - (BOOL)renderPixelBuffer:(CVPixelBufferRef)pixelBuffer {
@@ -494,12 +514,12 @@ static NSString *gStatsLine;
     if (_textureCache != NULL) {
         CVMetalTextureCacheFlush(_textureCache, 0);
     }
-    CGSize drawable = _layer.drawableSize;
-    if (drawable.width < 2 || drawable.height < 2) {
+    CGSize drawablePixels = _layer.drawableSize;
+    if (drawablePixels.width < 2 || drawablePixels.height < 2) {
         return YES;
     }
     CGFloat aspect = (CGFloat)width / (CGFloat)height;
-    CGRect output = [MetalFXLayout outputRectForDrawablePixels:drawable streamAspectRatio:aspect];
+    CGRect output = [MetalFXLayout outputRectForDrawablePixels:drawablePixels streamAspectRatio:aspect];
     if (CGRectIsEmpty(output)) {
         return YES;
     }
@@ -510,7 +530,7 @@ static NSString *gStatsLine;
     matrix = _matrix;
     [_lock unlock];
     BOOL settled = screen.width < 2.0 || screen.height < 2.0 ||
-        (drawable.width >= screen.width * 0.85 && drawable.height >= screen.height * 0.85);
+        (drawablePixels.width >= screen.width * 0.85 && drawablePixels.height >= screen.height * 0.85);
     if (![MetalFXLayout canUpscaleInput:CGSizeMake(width, height) toOutput:output.size]) {
         if (!settled && _skippedForLayout < 45) {
             _skippedForLayout++;
@@ -540,8 +560,8 @@ static NSString *gStatsLine;
         return NO;
     }
 
-    id<CAMetalDrawable> drawable = [_layer nextDrawable];
-    if (drawable == nil) {
+    id<CAMetalDrawable> metalDrawable = [_layer nextDrawable];
+    if (metalDrawable == nil) {
         return YES;
     }
     id<MTLCommandBuffer> commandBuffer = [_queue commandBuffer];
@@ -582,6 +602,13 @@ static NSString *gStatsLine;
     [yuvEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [yuvEncoder endEncoding];
 
+#if !TWILIGHT_HAS_METALFX
+    (void)metalDrawable;
+    (void)commandBuffer;
+    (void)params;
+    [self failWithReason:@"MetalFX is unavailable"];
+    return NO;
+#else
     if (@available(iOS 16.0, tvOS 16.0, *)) {
         id<MTLFXSpatialScaler> scaler = _scaler;
         scaler.colorTexture = _rgbTexture;
@@ -595,9 +622,9 @@ static NSString *gStatsLine;
         return NO;
     }
 
-    CGRect viewport = [MetalFXLayout metalViewportForOutputRect:output drawableHeight:drawable.texture.height];
+    CGRect viewport = [MetalFXLayout metalViewportForOutputRect:output drawableHeight:metalDrawable.texture.height];
     MTLRenderPassDescriptor *blitPass = [MTLRenderPassDescriptor renderPassDescriptor];
-    blitPass.colorAttachments[0].texture = drawable.texture;
+    blitPass.colorAttachments[0].texture = metalDrawable.texture;
     blitPass.colorAttachments[0].loadAction = MTLLoadActionClear;
     blitPass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
     blitPass.colorAttachments[0].storeAction = MTLStoreActionStore;
@@ -615,7 +642,7 @@ static NSString *gStatsLine;
     [blit drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [blit endEncoding];
 
-    [commandBuffer presentDrawable:drawable];
+    [commandBuffer presentDrawable:metalDrawable];
     id scaler = _scaler;
     id<MTLTexture> rgb = _rgbTexture;
     id<MTLTexture> scaled = _scaledTexture;
@@ -651,6 +678,7 @@ static NSString *gStatsLine;
         });
     }
     return YES;
+#endif
 }
 
 - (void)invalidate {

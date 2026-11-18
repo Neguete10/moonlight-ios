@@ -1295,6 +1295,14 @@
 					"$(inherited)",
 					"-framework",
 					"Metal",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"-weak_framework",
+					"MetalFX",
+				);
+				"OTHER_LDFLAGS[sdk=appletvos*]" = (
+					"$(inherited)",
 					"-weak_framework",
 					"MetalFX",
 				);
@@ -1359,6 +1367,14 @@
 					"$(inherited)",
 					"-framework",
 					"Metal",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"-weak_framework",
+					"MetalFX",
+				);
+				"OTHER_LDFLAGS[sdk=appletvos*]" = (
+					"$(inherited)",
 					"-weak_framework",
 					"MetalFX",
 				);
@@ -1535,6 +1551,14 @@
 					"$(inherited)",
 					"-framework",
 					"Metal",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"-weak_framework",
+					"MetalFX",
+				);
+				"OTHER_LDFLAGS[sdk=appletvos*]" = (
+					"$(inherited)",
 					"-weak_framework",
 					"MetalFX",
 				);
@@ -1594,6 +1618,14 @@
 					"$(inherited)",
 					"-framework",
 					"Metal",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"-weak_framework",
+					"MetalFX",
+				);
+				"OTHER_LDFLAGS[sdk=appletvos*]" = (
+					"$(inherited)",
 					"-weak_framework",
 					"MetalFX",
 				);
