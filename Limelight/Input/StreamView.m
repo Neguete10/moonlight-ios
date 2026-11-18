@@ -72,6 +72,9 @@ static const double X1_MOUSE_SPEED_DIVISOR = 2.5;
     [keyInputField setAutocorrectionType:UITextAutocorrectionTypeNo];
     [keyInputField setAutocapitalizationType:UITextAutocapitalizationTypeNone];
     [keyInputField setSpellCheckingType:UITextSpellCheckingTypeNo];
+    if ([TwilightInputLog isEnabled]) {
+        keyInputField.accessibilityIdentifier = @"twilight.keyfield";
+    }
     [self addSubview:keyInputField];
     
 #if TARGET_OS_TV

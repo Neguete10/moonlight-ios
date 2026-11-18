@@ -275,6 +275,18 @@
     }
     [self saveShot:@"keyboard"];
 
+    // Type the letter before any toggle key is held. Win and Alt stay down
+    // until tapped again, and a q typed in that state is not VK 81.
+    XCUIElement *letter = app.keys[@"q"];
+    if (!letter.exists) {
+        letter = app.keys[@"Q"];
+    }
+    XCTAssertTrue(letter.exists, @"System keyboard is missing the Q key");
+    // Type into the focused stream field. The one-point field is not a
+    // hittable target, and a later Win/Alt hold would change the character.
+    [app typeText:@"q"];
+    XCTAssertTrue([self logContains:@"down 81" within:8], @"key log missing \"down 81\": %@", [self keyLog].label);
+
     [self tapIdentifier:@"twilight.key.esc" expecting:@"down 27"];
     [self waitForLogContaining:@"up 27"];
 
@@ -285,23 +297,10 @@
     [self tapIdentifier:@"twilight.key.ctrl" expecting:@"up 162"];
 
     [self tapIdentifier:@"twilight.key.alt" expecting:@"down 164"];
-    [self tapIdentifier:@"twilight.key.win" expecting:@"down 91"];
+    [self tapIdentifier:@"twilight.key.alt" expecting:@"up 164"];
 
-    XCUIElement *letter = app.keys[@"q"];
-    if (!letter.exists) {
-        letter = app.keys[@"Q"];
-    }
-    if (!letter.exists) {
-        letter = app.keys[@"a"];
-    }
-    XCTAssertTrue(letter.exists, @"System keyboard is missing letter keys");
-    NSString *letterName = letter.label.lowercaseString;
-    int letterCode = [letterName isEqualToString:@"q"] ? 81 : 65;
-    NSString *letterNeedle = [NSString stringWithFormat:@"down %d", letterCode];
-    // The software Q key is on screen, but a tap often never reaches the
-    // one-point text field. Typing into the focused field does.
-    [app typeText:letterName];
-    XCTAssertTrue([self logContains:letterNeedle within:8], @"key log missing \"%@\": %@", letterNeedle, [self keyLog].label);
+    [self tapIdentifier:@"twilight.key.win" expecting:@"down 91"];
+    [self tapIdentifier:@"twilight.key.win" expecting:@"up 91"];
 
     [self tapIdentifier:@"twilight.key.done"];
     NSPredicate *gone = [NSPredicate predicateWithFormat:@"exists == 0"];
