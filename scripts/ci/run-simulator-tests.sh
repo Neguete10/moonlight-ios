@@ -5,6 +5,10 @@
 # test process. Xcode strips the TEST_RUNNER_ prefix before the test sees them.
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=with-timeout.sh
+source "$script_dir/with-timeout.sh"
+
 defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
 
 python3 - << 'PY'
@@ -121,7 +125,8 @@ run_one() {
     return 0
   fi
   local udid
-  udid="$(xcrun simctl create "Twilight $label" "$devicetype" "$runtime_id")"
+  udid="$(run_deadline 60 xcrun simctl create "Twilight $label" "$devicetype" "$runtime_id")"
+  udid="$(printf '%s' "$udid" | tr -d '[:space:]')"
   echo "Testing $label ($family) on $udid"
   local shotdir="$shots/$label"
   mkdir -p "$shotdir"
@@ -134,7 +139,7 @@ run_one() {
   local pref_dir="$HOME/Library/Developer/CoreSimulator/Devices/$udid/data/Library/Preferences"
   mkdir -p "$pref_dir"
   defaults write "$pref_dir/com.apple.keyboard.preferences" DidShowContinuousPathIntroduction -bool true
-  xcrun simctl boot "$udid" || true
+  run_deadline 90 xcrun simctl boot "$udid" || true
   python3 - "$udid" << 'PY'
 import subprocess
 import sys

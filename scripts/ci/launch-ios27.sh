@@ -4,6 +4,10 @@
 # runner it waits on SpringBoard until the job is killed.
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=with-timeout.sh
+source "$script_dir/with-timeout.sh"
+
 runtime_id="$(python3 - << 'PY'
 import json
 import subprocess
@@ -63,26 +67,7 @@ print(chosen)
 PY
 )"
 
-udid="$(xcrun simctl create "Twilight iOS 27 Launch" "$devicetype" "$runtime_id")"
-xcrun simctl boot "$udid" || true
-python3 - "$udid" << 'PY'
-import subprocess
-import sys
-import time
-
-udid = sys.argv[1]
-for _ in range(36):
-    listed = subprocess.run(
-        ["xcrun", "simctl", "list", "devices"],
-        capture_output=True,
-        text=True,
-    ).stdout
-    for line in listed.splitlines():
-        if udid in line and "(Booted)" in line:
-            sys.exit(0)
-    time.sleep(5)
-sys.exit("simulator %s was not Booted after 3 minutes" % udid)
-PY
+udid="$(boot_named_simulator "Twilight iOS 27 Launch" "$devicetype" "$runtime_id")"
 
 derived="${RUNNER_TEMP:-/tmp}/twilight-ios27"
 xcodebuild -project Moonlight.xcodeproj -scheme Moonlight -configuration Debug \

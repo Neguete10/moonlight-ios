@@ -3,6 +3,10 @@
 # iPhone frameshots stay portrait in simctl; rotate those so the header is on top.
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=with-timeout.sh
+source "$script_dir/with-timeout.sh"
+
 workspace="${GITHUB_WORKSPACE:-$(pwd)}"
 out="$workspace/ui-screenshots"
 mkdir -p "$out"
@@ -85,34 +89,15 @@ boot_device() {
   local name="$1"
   local type="$2"
   local udid
-  udid="$(xcrun simctl create "$name" "$type" "$runtime_id")"
-  xcrun simctl boot "$udid" || true
-  python3 - "$udid" << 'PY'
-import subprocess
-import sys
-import time
-
-udid = sys.argv[1]
-for _ in range(36):
-    listed = subprocess.run(
-        ["xcrun", "simctl", "list", "devices"],
-        capture_output=True,
-        text=True,
-    ).stdout
-    for line in listed.splitlines():
-        if udid in line and "(Booted)" in line:
-            sys.exit(0)
-    time.sleep(5)
-sys.exit("simulator %s was not Booted after 3 minutes" % udid)
-PY
+  udid="$(boot_named_simulator "$name" "$type" "$runtime_id")"
   printf '%s' "$udid" > /tmp/twilight-booted-udid
 }
 
 install_app() {
   local udid="$1"
   local app="$2"
-  xcrun simctl terminate "$udid" io.github.neguete10.twilight.ios || true
-  xcrun simctl install "$udid" "$app"
+  run_deadline 20 xcrun simctl terminate "$udid" io.github.neguete10.twilight.ios || true
+  run_deadline 60 xcrun simctl install "$udid" "$app"
 }
 
 shot() {
@@ -120,15 +105,15 @@ shot() {
   local appearance="$2"
   local mode="$3"
   local file="$4"
-  xcrun simctl ui "$udid" appearance "$appearance" || true
-  xcrun simctl terminate "$udid" io.github.neguete10.twilight.ios || true
+  run_deadline 20 xcrun simctl ui "$udid" appearance "$appearance" || true
+  run_deadline 20 xcrun simctl terminate "$udid" io.github.neguete10.twilight.ios || true
   if [ -n "$mode" ]; then
-    SIMCTL_CHILD_TWILIGHT_SCREENSHOT="$mode" xcrun simctl launch "$udid" io.github.neguete10.twilight.ios
+    SIMCTL_CHILD_TWILIGHT_SCREENSHOT="$mode" run_deadline 30 xcrun simctl launch "$udid" io.github.neguete10.twilight.ios
   else
-    xcrun simctl launch "$udid" io.github.neguete10.twilight.ios
+    run_deadline 30 xcrun simctl launch "$udid" io.github.neguete10.twilight.ios
   fi
   sleep 4
-  xcrun simctl io "$udid" screenshot "$file"
+  run_deadline 30 xcrun simctl io "$udid" screenshot "$file"
   echo "Wrote $file"
 }
 
